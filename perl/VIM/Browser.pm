@@ -1,6 +1,6 @@
 # File Name: Browser.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: August 10, 2004
+# Last Update: September 03, 2004
 ###########################################################
 
 ############# description of this module ##################
@@ -23,7 +23,7 @@
 # * VIM::Browser::AddrBook - A class representing a bookmark file, and 
 # provides hash access to it.
 #
-# More detailed description follows bellow.
+# More detailed description follows below.
 ##########################################################
 
 ###################### bookmark files ####################
@@ -132,6 +132,7 @@ sub SCALAR {
 package VIM::Browser::Page;
 use overload '""' => 'as_string';
 use HTML::FormatText::Vim;
+use HTML::Form;
 use Encode;
 use URI;
 use Vim;
@@ -165,13 +166,19 @@ our %FORMAT = (
         $width = $Vim::Option{'columns'} - $Vim::Option{'wrapmargin'} 
             unless $width;
         my $encoding = $self->header('encoding');
-        my $html = decode($encoding, $self->source);
+        my $html = 
+            Encode::resolve_alias($encoding) ? decode($encoding, $self->source)
+                                             : $self->source;
+        my $base = $self->header('uri base');
+        my @forms = HTML::Form->parse($html, $base);
         my $formatter = new HTML::FormatText::Vim 
             leftmargin => 0, 
             rightmargin => $width,
             # the formatter will store the absolute uris for the links using 
             # this base
-            base => $self->header('uri base'),
+            base => $base,
+            # the forms of this page
+            forms => [ @forms ],
             # the decoration to use for various tags. The possible tags are 
             # stored in the %Markup hash in HTML::FormatText::Vim
             map { 
@@ -200,11 +207,15 @@ our %FORMAT = (
 # rest of the arguments are passed to format() after the response.
 sub new {
     my $class = shift;
-    ### Fields of a Page:
+    my $req = shift;
+    ### Fields of a Page: unless mentioned otherwise, fields are usually
+    # initialized by the 'format' method. 'the formatter' means the element 
+    # of %FORMAT corresponding to the content type
     my $self = {
         # title of the document
         title => undef,
-        # the buffer object associated to this page
+        # the buffer object associated to this page. Initialized by the 
+        # 'show' method
         buffer => undef,
         # number of extra lines in the top of the buffer, not taken account 
         # in the lines of the links and fragments (due to the addition of 
@@ -217,36 +228,55 @@ sub new {
         # argument of an 'a' tag) the line number in the buffer where it 
         # occurs. Line numbers here and in the links field below start from 
         # 0.
+        # Initialized by the formatter.
         fragment => undef,
         # an array ref, containing, for a number n, the list of links that 
         # occur on line n. Each value is an array ref, each of whose elements 
-        # is a hash ref with (at least) the fields 'target', 'from' and 'to', 
-        # containing the link target, and start and end columns, resp.
+        # is a hash ref with (at least) the fields 'from' and 'to', 
+        # containing the link start and end columns, resp. Form inputs are 
+        # also members of these list. If an element contains a field 
+        # 'target', it is considered that this link can be followed, and the 
+        # value of 'target' is either the destination, or a sub that can be 
+        # called with $self, and returns the destination (any legal value for 
+        # VIM::Browser::Window::openUri).
+        # The form input links are designed as follows: First, there is an 
+        # item for every physical entity in the page text. Thus, in contrast 
+        # to HTML::Form inputs, there is a distinct item for each radio 
+        # button. They generally have 3 fields pointing to subs: 'getval' 
+        # gets the value of the input as reflected in the page text (gets the 
+        # page as an argument), 'setval' sets the value of the input in the 
+        # page (gets the page, and the new value), and 'update' updates the 
+        # corresponding input object (from HTML::Form) from the value in the 
+        # page (gets the page). The form is stored in the 'form' field, and 
+        # the input is stored in the 'input' field.
+        # Initialized by the formatter.
         links => undef,
         # the raw list of bytes retrieved from the location
         source => undef,
-        # the vim file type corresponding to the source
+        # the vim file type corresponding to the source. Initialized by the 
+        # formatter.
         type => undef,
         # what are we doing with this data (by default). A special value is 
         # 'show', which means we are just displaying the formatted contents 
         # in a buffer.
         action => undef,
         # a uri for this page (but note that more than one uri may lead to 
-        # the same page due to redirection)
-        uri => new URI shift
+        # the same page due to redirection). Initialized by the 'fetch' 
+        # method.
+        uri => undef
     };
     bless $self, $class;
-    my $response = $self->fetch;
-    return undef unless $response->is_success;
+    Vim::debug("Creating a new page for $req");
+    my $response = $self->fetch($req);
+    # return undef unless $response->is_success;
     my @text = $self->format($response, @_);
     # if the action is 'show', we do it right now, with the given text
     my $keep = $self->action eq 'show' ? $self->show(@text) : 0;
-    if ( $keep ) {
-        # we might have been redirected - keep the other name an alias to 
-        # this object
-        my $request_uri = $response->request->uri;
-        $VIM::Browser::URI{"$request_uri"} = $self;
-    }
+    return undef unless $keep;
+    # we might have been redirected - keep the other name an alias to 
+    # this object
+    my $request_uri = $self->uri;
+    $VIM::Browser::URI{"$request_uri"} = $self;
     return $self;
 }
 
@@ -276,7 +306,9 @@ for my $field (qw(action type title source offset uri buffer)) {
 };
  
 sub as_string {
-    $_[0]->{'uri'};
+    my $res = $_[0]->{'uri'};
+    $res =~ s/([?:%#])/\\$1/go;
+    $res
 }
 
 # the various actions: to implement an action, define a method by the same 
@@ -288,10 +320,20 @@ sub show {
     my $self = shift;
     if ( @_ ) {
         if ( $self->buffer ) {
+            Vim::debug(
+                'Using existing buffer ' . $self->Name . ' for ' . $self->uri);
             $self->Delete(1, $self->Count);
         } else {
-            VIM::DoCommand(
-                "silent edit +setfiletype\\ browser VimBrowser:-$self-");
+            Vim::debug('Creating a new buffer for ' . $self->uri);
+            # This is a bit wrong because (theoretically) a file with the 
+            # given name could exist
+#x             VIM::DoCommand(
+#x                 "silent edit +setfiletype\\ browser VimBrowser:-$self-");
+            VIM::DoCommand('silent enew');
+            VIM::DoCommand('setfiletype browser');
+            VIM::DoCommand("silent! file VimBrowser:-$self-");
+            # for some reason, an extra buffer is created, wipe it out
+            VIM::DoCommand('bwipeout #');
             $self->buffer = $main::curbuf;
         }
         $self->Append(0, @_);
@@ -349,10 +391,10 @@ sub format {
     my $self = shift;
     my $response = @_ ? shift : $self->fetch;
     $response = $self->fetch unless $response;
-    unless ($response->is_success) {
-        $self->action = 'del';
-        return ();
-    }
+    #unless ($response->is_success) {
+    #    $self->action = 'del';
+    #    return ();
+    #}
     my $encoding = $response->content_encoding;
     unless ($encoding) {
         foreach ($response->header('content-type')) {
@@ -379,7 +421,10 @@ sub format {
     };
     delete $self->header->{$_} 
         foreach grep { not $self->header($_) } keys %{$self->header};
-    $self->header('uri base') = $response->base;
+    my $base = $response->base;
+    # try to make it absolute
+    $base = URI::file->new_abs($base->file) if $base->scheme eq 'file';
+    $self->header('uri base') = $base;
     $self->title = $response->title;
     my $handler = @_ ? shift : $FORMAT{$response->content_type()};
     # default default action is to save
@@ -395,8 +440,12 @@ sub format {
 }
 
 # fetch the page, and return the raw response object
+# we also update the 'uri' field here.
 sub fetch {
-    return VIM::Browser::fetch(shift->uri);
+    my $self = shift;
+    my $response = VIM::Browser::fetch(@_ ? shift : $self->uri);
+    $self->uri = $response->request->uri;
+    $response
 }
 
 # return the line of a given anchor name
@@ -430,6 +479,23 @@ sub removeHeader {
     $self->offset = 0;
 }
 
+# get the line with the given number, not including the header. Line numbers
+# start from 1
+sub getLine {
+    my ($self, $line) = @_;
+    my $Offset = $self->offset;
+    $self->buffer->Get($line - $Offset + 1);
+}
+
+# set the line with the given number, not including the header, to the given
+# value. Line numbers start from 1
+sub setLine {
+    my ($self, $line, $value) = @_;
+    my $Offset = $self->offset;
+    $self->buffer->Set($line - $Offset + 1, $value);
+}
+
+# return the link in the current cursor location, or undef if there is no 
 # return the link in the current cursor location, or undef if there is no 
 # link. The returned object is the corresponding hashref in the 'links' 
 # field.
@@ -480,6 +546,14 @@ sub findNextLink {
     return undef unless @$links;
     return $dir < 0 ? ( $links->[-1], -($nrow + $row) ) 
                     : ( $links->[0], $nrow - $row - $offset );
+}
+
+# display the link target
+sub linkTarget {
+    my $self = shift;
+    my $link = shift;
+    (ref $link->{'target'}) ? &{$link->{'target'}}($self)
+                            : $link->{'target'};
 }
 
 # display the raw source in a scratch buffer
@@ -573,17 +647,22 @@ sub fragmentLine {
 # implementor. If an action is not given, we assume the default action, 
 # possibly using an existing Page instead of creating a new one. Returns 1 if 
 # the page is displayed in the window, 0 otherwise
+# The "uri" can, in fact, be one of 3 things:
+# 1. A uri string
+# 2. A URI object
+# 3. An HTTP:Request object (which makes the name somewhat misleading...)
 sub openUri {
     my $self = shift;
     my $uri = shift;
     $uri = new URI $uri unless ref($uri);
-    my $fragment = $uri->fragment(undef);
+    Vim::debug("Opening $uri");
     if ( @_ ) {
         # we are given an action
         $Page = new VIM::Browser::Page $uri, shift;
     } else {
         # use cache, or default action to open
-        $Page = $VIM::Browser::URI{"$uri"};
+        $Page = $uri->isa('URI') ? $VIM::Browser::URI{"$uri"}
+                                 : new VIM::Browser::Page $uri;
     }
     return 0 unless $Page;
     if ( $Page->action eq 'show' ) {
@@ -592,6 +671,7 @@ sub openUri {
         VIM::DoCommand("buffer " . $Page->Number);
         $self->page = $Page;
         # go to the right fragment
+        my $fragment = $Page->uri->fragment(undef);
         $self->fragment = $fragment;
         VIM::DoCommand($self->fragmentLine);
         return 1;
@@ -614,14 +694,13 @@ sub openNew {
     
 }
 
-# get the link target at the current cursor position
+# get the link target of the given link, or the one at the current cursor 
+# position if not given
 sub getLink {
     my $self = shift;
-    if ( defined (my $link = $self->page->findLink) ) {
-        $link->{'target'};
-    } else {
-        undef;
-    }
+    my $link = shift || $self->page->findLink;
+    my $req = $self->page->linkTarget($link);
+    return (ref($req) and $req->can('uri')) ? $req->uri : $req;
 }
 
 ## history stuff
@@ -655,18 +734,26 @@ sub goHist {
 
 ############# The main package #################
 package VIM::Browser;
+
 use LWP::UserAgent;
 use URI;
 use URI::Heuristic qw(uf_uri);
+use URI::file;
 use Tie::Memoize;
+
 use Data::Dumper;
+use File::Spec::Functions qw(:ALL);
+use File::Basename;
+use File::Path;
+use File::Glob ':glob';
+
 use Vim;
 
 use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.1;
+    our $VERSION = 0.2;
 }
 
 # get the value of the given setting. Looks a variable g:browser_<foo>.  
@@ -687,49 +774,63 @@ our $CurWin;
 # the current window id
 our $MaxWin = 0;
 
+# This is totally stupid, but it appears there is no simple way to get the 
+# file seperator for the current os.
+our $FileSep = catdir('foo', 'bar');
+# I hope no os uses foo or bar as the curdir :-)
+$FileSep =~ s/^foo(.*)bar$/$1/o;
+
 # the directory containing all bookmark files. Each file in this directory is 
 # considered to be a bookmark file.
-our $AddressBookDir = setting('addrbook_dir', 
-                              $ENV{'HOME'} . '/.vim/addressbooks/');
+our @RunTimePath = grep { -w } split /,/, $Vim::Option{'runtimepath'};
+our $DataDir = 
+    canonpath(setting('data_dir', catdir(shift @RunTimePath, 'browser')));
+our $AddressBookDir = 
+    canonpath(setting('addrbook_dir', catdir($DataDir, 'addressbooks')));
 
-$AddressBookDir =~ s{//*}{/}go;
-die "Bookmarks directory must be absolute, not $AddressBookDir"
-    unless $AddressBookDir =~ m{^/};
+$AddressBookDir .= $FileSep if $AddressBookDir;
+
+#skip the whole bookmarks business if the directory is empty
+if ( $AddressBookDir ) {
+    die "Bookmarks directory must be absolute, not $AddressBookDir"
+        unless file_name_is_absolute($AddressBookDir);
 
 # make sure it exists
-if ( -d $AddressBookDir ) {
-    die "$AddressBookDir is not readable" unless -r _;
-} elsif ( -e _ ) {
-    die "$AddressBookDir exists, but is not a directory";
-} else {
-    Vim::msg("Bookmarks directory $AddressBookDir doesn't exist, creating...");
-    my $dir = '';
-    foreach ( split '/', $AddressBookDir ) {
-        $dir .= "/$_";
-        mkdir $dir unless -e $dir;
+    if ( -d $AddressBookDir ) {
+        die "$AddressBookDir is not readable" unless -r _;
+    } elsif ( -e _ ) {
+        die "$AddressBookDir exists, but is not a directory";
+    } else {
+        Vim::msg(
+            "Bookmarks directory $AddressBookDir doesn't exist, creating...");
+        mkpath($AddressBookDir, 0, 0755);
     }
-    die "Failed to create $AddressBookDir" unless -d $AddressBookDir;
-}
 
 # the hash of all bookmark files. Each entry is a hash tied to AddrBook, and 
 # the keys are the names of the files (relative to $AddressBookDir)
-tie our %AddrBook, 'Tie::Memoize', sub { 
-    my ($file, $dir) = @_;
-    tie my %book, 'VIM::Browser::AddrBook', "$dir/$file";
-    return \%book;
-}, $AddressBookDir, sub { -r "$_[1]/$_[0]" };
+    tie our %AddrBook, 'Tie::Memoize', sub { 
+        my ($file, $dir) = @_;
+        tie my %book, 'VIM::Browser::AddrBook', catfile($dir, $file);
+        return \%book;
+    }, $AddressBookDir, sub { -r catfile(reverse @_) };
 
 # the current (default) bookmark file
-our $CurrentBook = setting('default_addrbook', 'default');
+    our $CurrentBook = setting('default_addrbook', 'default');
+}
 
 # the encoding we assume, if none is given in the document header
 our $AssumedEncoding = setting('assumed_encoding', 'utf-8');
 
+# cookies file
+our $CookiesFile = setting('cookies_file', 
+                           catfile($DataDir, 'cookies.txt'));
 # the user agent
 our $Agent = new LWP::UserAgent
     agent => "VimBrowser/$VERSION ",
     from => setting('from_header', $ENV{'EMAIL'}),
     protocols_forbidden => [qw(mailto)],
+    cookie_jar => $CookiesFile ? { file => $CookiesFile, autosave => 1 } 
+                               : undef,
     env_proxy => 1;
 
 # scan all windows until we find:
@@ -770,17 +871,29 @@ sub goBrowser {
 sub getPage {
     return shift if @_;
     unless (goBrowser) {
-        error('Unable to find an open browser window');
+        Vim::error('Unable to find an open browser window');
         return;
     }
     return $CurWin->page;
 }
 
-# fetch a uri
+# fetch a uri/request
 sub fetch {
-    my $uri = shift;
-    Vim::msg("Fetching $uri...");
-    my $response = $Agent->get($uri);
+    my $req = shift;
+    my ($uri, $response);
+    if ( not ref($req) or $req->isa('URI') ) {
+        $uri = $req;
+        Vim::msg("Fetching $uri...");
+        $response = $Agent->get($uri);
+    } else {
+        $uri = $req->uri;
+        Vim::msg("Sending request to $uri...");
+        $response = $Agent->request($req);
+    }
+    # the following status means that we are redirected, but UserAgent
+    # doesn't do it automatically, for some reason. (TODO)
+    return fetch( $response->headers->header('location') ) 
+        if $response->status_line =~ /302 Found/;
     Vim::error("Failed to fetch $uri:", $response->status_line)
         unless ($response->is_success);
     return $response;
@@ -788,13 +901,23 @@ sub fetch {
 
 # get a partial uri or a bookmark, and return the canonical absolute uri.  
 # This operates recursively so we may have bookmarks pointing to other 
-# bookmarks, etc.
+# bookmarks, etc. The other arguments are interpreted as arguments: They are 
+# concatenated after the uri, with + or & in front, depending on whether they 
+# contain a '='.
 sub canonical {
     local $_ = shift;
+    if (@_) {
+        my $uri = canonical($_);
+        return undef unless defined $uri;
+        $uri .= shift;
+        $uri .= ((/\=/ ? '&' : '+') . $_) while $_ = shift;
+        return new URI $uri;
+    };
     # if this is _not_ a bookmark request, return the absolute uri
     return uf_uri($_) unless s/^://o;
     # if we got here, it's a bookmark - determine the bookmark file, and 
     # remove it from the request
+    return undef unless $AddressBookDir;
     my $book = s/^([^:]*)://o ? $1 : $CurrentBook;
     $book = $CurrentBook unless $book;
     unless (exists $AddrBook{$book}) {
@@ -816,7 +939,15 @@ sub canonical {
 sub checkScheme {
     my $uri = shift;
     $uri = new URI $uri unless ref $uri;
+    return $uri unless $uri->isa('URI');
     my $scheme = $uri->scheme;
+    unless ( defined $scheme ) {
+        Vim::error(<<EOF);
+Unable to determine the scheme of '$uri'.
+Please try a more detailed uri.
+EOF
+        return undef;
+    };
     my $handler = setting("${scheme}_handler");
     if ( $handler ) {
         $handler =~ s/%s/$uri/o;
@@ -835,14 +966,21 @@ EOF
 }
 
 # return the list of files in the given directory. If the directory is not 
-# given, use '.'. If the second argument is true, hidden files are returned, 
-# as well.
+# given, use '.'. If the second argument is true, add a trailing slash to
+# directory names
 sub listDirFiles {
-    my ($dir, $dot) = @_;
-    $dir = '.' unless $dir;
-    opendir DH, $dir or return '';
-    my @res = grep { $dot or /^[^.]/o } readdir DH;
-    close DH;
+    my ($dir, $trailing) = @_;
+    # uf_uri doesn't guess correctly for bare filenames without path
+    # components. We will adopt this behaviour.
+    return () unless $dir;
+    # catfile (and catdir) on windows make the drive letter upper case -
+    # don't use it!
+    $dir .= '*';
+    # $dir = $dir ? catfile($dir, "*") : "*";
+    $flags = GLOB_TILDE; # | GLOB_NOSORT;
+    $flags |= GLOB_MARK if $trailing;
+    @res = bsd_glob($dir, $flags);
+    map { s{/$}{$FileSep}o } @res if $trailing;
     return @res;
 }
 
@@ -864,10 +1002,20 @@ sub cleanBuf {
     delete $URI{$_};
 }
 
-# show the target of the link under the cursor
+# show the target of the link (given, or under the cursor)
 sub showLinkTarget {
-    my $Link = $CurWin->getLink;
-    Vim::msg($Link ? $Link : "\n");
+    # (TODO) This funny arrangement is used because the 'T' flag in 
+    # 'shortmess' is not always in effect, for some reason. It works only 
+    # from the autocmd. So if the link is passed in explicitly, we show 
+    # nothing if the line is too long.
+    my $short = @_;
+    my $text = $CurWin->getLink(@_);
+    return unless defined $text;
+    my $width = $Vim::Option{'textwidth'};
+    $width = $Vim::Option{'columns'} - $Vim::Option{'wrapmargin'} 
+        unless $width;
+    return if ( $short and length "$text" > $width - 20 );
+    Vim::msg( $text );
 }
 
 # reload the given (or current) page
@@ -882,7 +1030,7 @@ sub reload {
 # if it is '!' split vertically. If no extra argument is given, split 
 # (horizontally) only if there is no open browser window
 sub browse {
-    $uri = canonical(shift);
+    $uri = canonical(split ' ', shift);
     return unless defined $uri;
     return unless defined checkScheme($uri);
     if (not goBrowser() or @_) {
@@ -902,12 +1050,94 @@ sub browse {
         VIM::DoCommand('quit');
     }
 }
-        
+
+### form input methods.
+
+# rotate input values for 'option' and 'radio' inputs. Arguments are the 
+# offset (default 1) and the link (default current). For 'radio', the 
+# rotation is cyclic.
+sub nextInputChoice {
+    my $offset = shift || 1;
+    my $link = shift || $CurWin->page->findLink;
+    return unless $link;
+    my $input = $link->{'input'};
+    my $type = $input->type;
+    my $page = $CurWin->page;
+    my $form = $link->{'form'};
+    my $name = $input->name;
+    if ( $type eq 'option' ) {
+        my $value = &{$link->{'getval'}}($page);
+        my @values = $input->value_names;
+        my %index;
+        @index{@values} = 0..$#values;
+        my $index = $index{$value} + $offset;
+        &{$link->{'setval'}}($page, $values[$index]) 
+            unless ($index > $#values or $index < 0);
+    } elsif ( $type eq 'radio' ) {
+        my @values = 
+            grep { $_->{'input'}->type eq 'radio' and 
+                   $_->{'input'}->name eq $name } @{$form->{'vimdata'}};
+        my ($value) = grep { &{$_->{'getval'}}($page) eq '*' } @values;
+        my %index;
+        @index{@values} = 0..$#values;
+        my $index = ($index{$value} + $offset) % scalar(@values);
+        &{$value->{'setval'}}($page, ' ');
+        &{$values[$index]->{'setval'}}($page, '*');
+    }
+}
+
+# change the value of a form input. Input is the link (default current).
+sub clickInput {
+    my $page = $CurWin->page;
+    my $link = shift || $page->findLink;
+    return unless $link;
+    my $form = $link->{'form'};
+    return unless $form;
+    my $input = $link->{'input'};
+    my $name = $input->name;
+    my $type = $input->type;
+    my $from = $link->{'from'};
+    my $len = $link->{'to'} - $from + 1;
+    my $value = &{$link->{'getval'}}($page);
+    if ( $type eq 'text' ) {
+        VIM::DoCommand('startinsert!');
+    } elsif ( $type eq 'submit' ) {
+        follow($link);
+    } elsif ( $type eq 'checkbox' ) {
+        &{$link->{'setval'}}($page, $value eq 'X' ? ' ' : 'X');
+    } elsif ( $type eq 'radio' ) {
+        foreach (@{$form->{'vimdata'}}) {
+            next unless ($_->{'input'}->type eq 'radio' and 
+                         $_->{'input'}->name eq $name);
+            if (&{$_->{'getval'}}($page) eq '*') {
+                &{$_->{'setval'}}($page, ' ');
+                last;
+            };
+        };
+        &{$link->{'setval'}}($page, '*');
+    } elsif ( $type eq 'option' ) {
+        my @values = $link->{'input'}->value_names;
+        my @ind = (1..9, 'a'..'z')[0..$#values];
+        my $choices = join("\n", map { '&' . shift(@ind) . ". $_" } @values);
+        my $ind = VIM::Eval("confirm('', '$choices')" );
+        return unless $ind;
+        &{$link->{'setval'}}($page, $values[$ind-1]);
+    } elsif ( $type eq 'password' ) {
+        my $response = VIM::Eval("inputsecret('?')");
+        &{$link->{'setval'}}($page, $response);
+    } else { return };
+}
+
 # follow the link under the cursor
 sub follow {
-    my $Link = $CurWin->getLink;
-    if ($Link) {
-        $CurWin->openNew($Link) if defined($Link = checkScheme($Link));
+    my $link = shift || $CurWin->page->findLink;
+    if ($link) {
+        if ( my $target = $CurWin->page->linkTarget($link) ) {
+            $CurWin->openNew($target) 
+                if defined($target = checkScheme($target));
+        } elsif ( $link->{'form'} ) {
+            clickInput($link);
+        }
     } else {
         Vim::error($CurWin->page . ': No link at this point!');
     }
@@ -917,7 +1147,7 @@ sub follow {
 # either given as an argument, or is prompted from the user.
 sub saveLink {
     my $link = $CurWin->getLink;
-    if ($link) {
+    if ($link and not ref $link) {
         return 0 unless defined($link = checkScheme($link));
         return $CurWin->openUri($link, 'save', @_);
     } else {
@@ -942,7 +1172,11 @@ sub findNextLink {
             $count -= $dir;
         } else { last };
     }
-    Vim::msg( $link ? $link->{'target'} : 'No further links' );
+    unless ( $link ) {
+        Vim::msg('No further links');
+        return;
+    }
+    showLinkTarget($link);
 }
 
 # show the history for the current window
@@ -980,6 +1214,13 @@ sub viewSource {
 # come from the title. If the extra argument is true, delete the given 
 # bookmark.
 sub bookmark {
+    unless ( $AddressBookDir ) {
+        Vim::error(<<'EOF');
+Bookmarks are disabled. To enable bookmarks, 
+set g:browser_addrbook_dir to an absolute path
+EOF
+        return undef;
+    }
     my $name = shift;
     my $bang = shift;
     if ( $bang ) {
@@ -995,8 +1236,15 @@ sub bookmark {
 # if it does not exist. This book will be the one whose bookmarks are used 
 # without mentioning the book name
 sub changeBookmarkFile {
+    unless ( $AddressBookDir ) {
+        Vim::error(<<'EOF');
+Bookmarks are disabled. To enable bookmarks, 
+set g:browser_addrbook_dir to an absolute path
+EOF
+        return undef;
+    }
     my ($file, $create) = @_;
-    unless ($create or -r "$AddressBookDir/$file") {
+    unless ($create or -r catfile($AddressBookDir, $file)) {
         Vim::error("Bookmark file '$file' doesn't exist (use ! to create)");
         return;
     }
@@ -1006,6 +1254,13 @@ sub changeBookmarkFile {
     
 # list all bookmarks in the given/current bookmark file
 sub listBookmarks {
+    unless ( $AddressBookDir ) {
+        Vim::error(<<'EOF');
+Bookmarks are disabled. To enable bookmarks, 
+set g:browser_addrbook_dir to an absolute path
+EOF
+        return undef;
+    }
     my $book = $_[0] ? $_[0] : $CurrentBook;
     tied(%{$AddrBook{$book}})->list;
 }
@@ -1014,25 +1269,42 @@ sub listBookmarks {
 
 # to complete bookmark file names (relative to $AddressBookDir)
 sub listBookmarkFiles {
-    return join("\n", listDirFiles($AddressBookDir, 0));
+    return join("\n", map {basename $_} listDirFiles($AddressBookDir, 0));
 }
 
 # to complete (extended) uris
 sub listBrowse {
     my ($Arg, $CmdLine, $Pos) = @_;
     if ( $Arg !~ /^:/o ) {
-        my $prefix = $Arg =~ s{^(file:)}{}o ? $1 : '';
-        return '' if $Arg =~ m{^\w+://}o;
-        $Arg =~ s{[^/]*$}{}o;
-        my $res = join("\n", map { "$prefix$Arg$_" } listDirFiles($Arg, 1));
-        return $res;
+        # we have a decent uri or a file name
+        my $Uri = 0;
+        if ( lc($Arg) =~ /^file:/o ) {
+            $Arg = (new URI $Arg)->file;
+            $Uri = 1;
+        } elsif ( $Arg =~ m{^(\w+):/}o and 
+                  # allow drive letters on windows
+	          not ( $^O eq 'MSWin32' and length($1) == 1 ) ) {
+            # can't complete anything but files
+            return '';
+        }
+        my $Dir = catpath((splitpath($Arg))[0..1]);
+        my @List = listDirFiles($Dir, 1);
+        # Don't use catfile here since it removes the trailing slash!
+        # @List = map { catfile($Dir, $_) } @List if $Dir;
+        #@List = map { "$Dir$_" } @List if $Dir;
+        @List = map { (new URI::file $_)->as_string } @List if $Uri;
+        return join("\n", @List);
     }
+    return unless $AddressBookDir;
     if ( $Arg =~ /^:([^:]*):/o ) {
+        # complete a bookmark from the given bookmarks file
         my $book = $1 ? $1 : $CurrentBook;
         return join("\n", map { ":$1:$_" } keys %{$AddrBook{$book}});
     } else {
+        # complete a bookmarks file
         my $res = listBookmarkFiles();
         $res =~ s/^/:/mgo;
+        $res =~ s/$/:/mgo;
         return $res;
     }
 }
@@ -1056,14 +1328,14 @@ itself.
 
 If you are looking for the documentation of the browser plugin, it's in the 
 F<browser.pod> file. If you are looking for documentation about the 
-implementation, look at the comments in this file.
+implementation, look at the comments in the body of this source file.
 
 =head1 SEE ALSO
 
 This modules uses the following perl modules:
 
 L<Tie::Hash>, L<Tie::Memoize>, L<Encode>, L<URI>, L<URI::Heuristic>, 
-L<LWP::UserAgent>
+L<URI::file>, L<LWP::UserAgent>, L<HTML::Form>
 
 From cpan, and also
 
@@ -1083,3 +1355,4 @@ This program is free software. You may copy or
 redistribute it under the same terms as Perl itself.
 
 =cut
+

@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: August 10, 2004
+" Last Update: September 02, 2004
 " Description: syntax for a browser buffer. part of the browser plugin
-" Version: 0.1
+" Version: 0.2
 "
 
 if version < 600
@@ -15,12 +15,12 @@ endif
 if has('conceal')
   syntax region browserLink matchgroup=browserIgnore start=/<</ end=/>>/ 
         \display oneline concealends contains=TOP
-  syntax region browserPre matchgroup=browserIgnore start=/^\~>$/ end=/^<\~$/ 
+  syntax region browserPre matchgroup=browserIgnore start=/\~>$/ end=/^<\~\s*$/ 
         \concealends contains=TOP keepend
 else
   syntax region browserLink matchgroup=browserIgnore start=/<</ end=/>>/ 
         \display oneline contains=TOP
-  syntax region browserPre matchgroup=browserIgnore start=/^\~>$/ end=/^<\~$/ 
+  syntax region browserPre matchgroup=browserIgnore start=/\~>$/ end=/^<\~\s*$/ 
         \contains=TOP keepend
 endif
 syntax match browserHeader1 /^.*\_$\(\n\s*====*\s*\_$\)\@=/ display 
@@ -49,6 +49,15 @@ syntax region browserHead matchgroup=browserHeadTitle
 syntax region browserHeadField matchgroup=browserHeadKey 
       \start=/^  [^:]*:/ end=/$/ oneline display contained
 
+" Forms
+syntax region browserTextField matchgroup=browserTFstart 
+      \start=+\]>+ end=+$+ oneline display
+syntax region browserOption matchgroup=browserInputBoundary 
+      \start=+\[+ end=+\]+ oneline display keepend
+syntax match browserRadioSelected /(\*)/hs=s+1,he=e-1 display
+
+syntax sync fromstart
+
 if version >= 508 || !exists("did_c_syn_inits")
   if version < 508
     let did_c_syn_inits = 1
@@ -72,9 +81,9 @@ if version >= 508 || !exists("did_c_syn_inits")
       let end = escape(g:browser_{Tag}_end, '.*%')
       execute 
         \'syn region browser_' . Tag . ' matchgroup=browserIgnore start=%' . 
-        \start . '% end=%' . end . '%' . s:conceal
+        \start . '% end=%' . end . '% contains=TOP keepend' s:conceal
       if exists('g:browser_' . Tag . '_highlight')
-        execute 'HiLink browser_' . Tag . ' ' . g:browser_{Tag}_highlight
+        execute 'hi! link browser_' . Tag . ' ' . g:browser_{Tag}_highlight
       endif
     endif
   endfunction
@@ -83,8 +92,8 @@ if version >= 508 || !exists("did_c_syn_inits")
   HiLink browserHeader2 DiffAdd
   HiLink browserHeader3 DiffDelete
   HiLink browserHeader4 DiffText
-  HiLink browserHeader5 Statement
-  HiLink browserHeader6 Type
+  HiLink browserHeader5 Exception
+  HiLink browserHeader6 StorageClass
   HiLink browserHeaderUL PreProc
   HiLink browserIgnore Ignore
   HiLink browserLink Underlined
@@ -93,6 +102,13 @@ if version >= 508 || !exists("did_c_syn_inits")
   HiLink browserHeadTitle Title
   HiLink browserHeadKey Type
   HiLink browserHeadField Constant
+  HiLink browserTextField DiffAdd
+  HiLink browserTFstart Folded
+  HiLink browserOption Label
+  HiLink browserInputBoundary Delimiter
+  HiLink browserRadioSelected Label
+
+  runtime syntax/browser_highlight.vim
 
   call BrowserDefSyntax('bold')
   call BrowserDefSyntax('italic')
@@ -105,6 +121,7 @@ if version >= 508 || !exists("did_c_syn_inits")
   call BrowserDefSyntax('var')
 
   delfunction BrowserDefSyntax
+  
   delcommand HiLink
 endif
 

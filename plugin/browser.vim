@@ -1,107 +1,140 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-" Last Update: August 10, 2004
+" Last Update: September 03, 2004
 " Description: web browser plugin for vim
-" Version: 0.1
+" Version: 0.2
 "
 
-" don't run twice
-if exists(':Browse')
+" don't run twice or when 'compatible' is set
+if exists('g:browser_plugin_version') || &compatible
   finish
 endif
+let g:browser_plugin_version = 0.2
+
+" add <dir>/perl to the perl include path, for each dir in runtimepath. This 
+" way we can install the modules in a vim directory, instead of the global 
+" perl directory. We insert them in reverse order to preserve the meaning: 
+" stuff in the home directory takes precedence over global stuff, etc.
+" Use this opportunity to bail out if there is no perl support
+if has('perl')
+  function! s:AddIncludePath()
+    perl <<EOF
+      use File::Spec;
+      my $rtp = VIM::Eval('&runtimepath');
+      my @path = split /,/, $rtp;
+      unshift @INC, File::Spec->catdir($_, 'perl') foreach @path;
+EOF
+  endfunction
+  call s:AddIncludePath()
+  delfunction s:AddIncludePath
+else
+  echoerr 'The browser plugin requires a perl enabled vim. Sorry!'
+  finish
+end
 
 """"""""""" Settings """"""""""""""""
+" These are default settings. Can be overridden in some 
+" after/plugin/browser.vim
+
 " markup
 let g:browser_bold_start='_*'
 let g:browser_bold_end='*_'
-let g:browser_bold_highlight='Bold'
+";x let g:browser_bold_highlight='Bold'
 let g:browser_italic_start='_/'
 let g:browser_italic_end='/_'
-let g:browser_italic_highlight='UnderLine'
+";x let g:browser_italic_highlight='Function'
+
+" directory where all the data is kept. Default is the 'browser' subdir of the
+" first writeable component of 'runtimepath'
+";x let g:browser_data_dir = $HOME . '/.vim/browser/'
 
 " bookmarks
-let g:browser_addrbook_dir = $HOME . '/.vim/addressbooks/'
+" The directory where all bookmark files are stored.
+" set to empty to disable bookmarks
+";x let g:browser_addrbook_dir = ''
+
 let g:browser_default_addrbook = 'default'
 
-" scheme handlers
+" scheme handlers: nice examples for unix
 let g:browser_mailto_handler = 'xterm -e mutt %s &'
 let g:browser_ftp_handler = 'xterm -e ncftp %s &'
 
 let g:browser_assumed_encoding = 'utf-8'
 
+";x let g:browser_cookies_file = g:browser_data_dir . '/cookies.txt';
+
 let g:browser_from_header = $EMAIL
 
 """""""""""""" commands """""""""""""""""""
+" long commands. The short versions from version 0.1 are in browser_short.vim
+
 " opening
-command! -nargs=1 -complete=custom,CompleteBrowse Browse call Browse(<f-args>)
-command! -bang -nargs=1 -complete=custom,CompleteBrowse SBrowse 
-      \call Browse(<f-args>, <q-bang>)
-command! Follow call Follow()
-command! -nargs=? -complete=dir SaveLink call SaveLink(<f-args>)
-command! Reload call Reload()
+command! -bar -nargs=+ -complete=custom,BrowserCompleteBrowse Browse 
+      \call BrowserBrowse(<q-args>)
+command! -bar -bang -nargs=+ -complete=custom,BrowserCompleteBrowse 
+      \BrowserSplit call BrowserBrowse(<q-args>, <q-bang>)
+command! -bar BrowserFollow call BrowserFollow()
+command! -bar -nargs=? -complete=dir BrowserSaveLink 
+      \call BrowserSaveLink(<f-args>)
+command! -bar BrowserReload call BrowserReload()
 
 " history
-command! -range=1 Back call Back(<count>)
-command! -range=1 Pop call Back(<count>)
-command! -range=1 Forward call Forward(<count>)
-command! -range=1 Tag call Forward(<count>)
-command! History call History()
-command! Tags call History()
+command! -bar -range=1 BrowserBack call BrowserBack(<count>)
+command! -bar -range=1 BrowserPop call BrowserBack(<count>)
+command! -bar -range=1 BrowserForward call BrowserForward(<count>)
+command! -bar -range=1 BrowserTag call BrowserForward(<count>)
+command! -bar BrowserHistory call BrowserHistory()
+command! -bar BrowserTags call BrowserHistory()
 
 " bookmarks
-command! -nargs=1 -bang Bookmark call Bookmark(<f-args>, <q-bang>)
-command! -nargs=1 -bang -complete=custom,CompleteBkmkFile AddrBook 
-      \call ChangeBookmarkFile(<f-args>, <q-bang>)
-command! -nargs=? -complete=custom,CompleteBkmkFile ListBookmarks 
-      \call ListBookmarks(<f-args>)
+command! -bar -nargs=1 -bang BrowserBookmark 
+      \call BrowserBookmark(<f-args>, <q-bang>)
+command! -bar -nargs=1 -bang -complete=custom,BrowserCompleteBkmkFile 
+      \BrowserAddrBook call BrowserChangeBookmarkFile(<f-args>, <q-bang>)
+command! -bar -nargs=? -complete=custom,BrowserCompleteBkmkFile 
+      \BrowserListBookmarks call BrowserListBookmarks(<f-args>)
+
+" forms
+command! -bar -range=1 BrowserNextChoice call BrowserNextChoice(<count>)
+command! -bar -range=1 BrowserPrevChoice call BrowserPrevChoice(<count>)
+command! -bar BrowserClick call BrowserClick()
 
 " other
-command! ShowHeader call ShowHeader()
-command! HideHeader call HideHeader()
-command! -bang ViewSource call ViewSource(<q-bang>)
-command! -range=1 NextLink call NextLink(<count>)
-command! -range=1 PrevLink call PrevLink(<count>)
-
-"""""""""""""""""""""""""""""""""""""""""""""""
-" add <dir>/perl to the perl include path, for each dir in runtimepath. This 
-" way we can install the modules in a vim directory, instead of the global 
-" perl directory. We insert them in reverse order to preserve the meaning: 
-" stuff in the home directory takes precedence over global stuff, etc.
-perl <<EOF
-my $rtp = VIM::Eval('&runtimepath');
-my @path = split /,/, $rtp;
-unshift @INC, "$_/perl/" foreach @path;
-EOF
+command! -bar BrowserShowHeader call BrowserShowHeader()
+command! -bar BrowserHideHeader call BrowserHideHeader()
+command! -bar -bang BrowserViewSource call BrowserViewSource(<q-bang>)
+command! -bar -range=1 BrowserNextLink call BrowserNextLink(<count>)
+command! -bar -range=1 BrowserPrevLink call BrowserPrevLink(<count>)
 
 """"""""""""" autocommands """"""""""""""""""""
 augroup Browser
   au!
-  autocmd WinEnter *-* call UpdateInstance()
-  autocmd BufWipeout *-* call CleanBuf(expand("<afile>"))
-  autocmd CursorHold *-* call ShowLinkTarget()
+  autocmd WinEnter *-* call BrowserUpdateInstance()
+  autocmd BufWipeout *-* call BrowserCleanBuf(expand("<afile>"))
+  autocmd CursorHold *-* call BrowserShowLinkTarget()
 augroup END
 
 """""""""""""" functions """""""""""""""""""""""
-function! UpdateInstance()
+function! BrowserUpdateInstance()
   if exists('w:browserId')
     perl VIM::Browser::winChanged
   endif
 endfunction
 
-function! CleanBuf(Buf)
+function! BrowserCleanBuf(Buf)
   perl <<EOF
   my $buf = VIM::Eval('a:Buf');
   VIM::Browser::cleanBuf($buf);
 EOF
 endfunction
 
-function! ShowLinkTarget()
+function! BrowserShowLinkTarget()
   if exists('w:browserId')
     perl VIM::Browser::showLinkTarget
   endif
 endfunction
 
-function! Browse(File, ...)
+function! BrowserBrowse(File, ...)
   perl << EOF
   use VIM::Browser;
   my $uri = VIM::Eval('a:File');
@@ -115,62 +148,80 @@ function! Browse(File, ...)
 EOF
 endfunction
 
-function! Follow()
+function! BrowserFollow()
   perl VIM::Browser::follow
 endfunction
 
-function! Reload()
+function! BrowserReload()
   perl VIM::Browser::reload
 endfunction
 
-function! Back(...)
+function! BrowserBack(...)
   perl << EOF
   my $Offset = VIM::Eval('a:0 ? a:1 : 1');
   VIM::Browser::goHist(-$Offset);
 EOF
 endfunction
   
-function! Forward(...)
+function! BrowserForward(...)
   perl << EOF
   my $Offset = VIM::Eval('a:0 ? a:1 : 1');
   VIM::Browser::goHist($Offset);
 EOF
 endfunction
 
-function! ShowHeader()
+function! BrowserShowHeader()
   perl VIM::Browser::addHeader
 endfunction
 
-function! HideHeader()
+function! BrowserHideHeader()
   perl VIM::Browser::removeHeader
 endfunction
 
-function! History()
+function! BrowserHistory()
   perl VIM::Browser::showHist
 endfunction
 
-function! ViewSource(dir)
+function! BrowserViewSource(dir)
   perl << EOF
   my $dir = VIM::Eval('a:dir');
   VIM::Browser::viewSource($dir)
 EOF
 endfunction
 
-function! NextLink(count)
+function! BrowserNextLink(count)
   perl << EOF
   my $count = VIM::Eval('a:count');
   VIM::Browser::findNextLink($count);
 EOF
 endfunction
 
-function! PrevLink(count)
+function! BrowserPrevLink(count)
   perl << EOF
   my $count = VIM::Eval('a:count');
   VIM::Browser::findNextLink(-$count);
 EOF
 endfunction
 
-function! Bookmark(name, del)
+function! BrowserClick()
+  perl VIM::Browser::clickInput
+endfunction
+
+function! BrowserNextChoice(count)
+  perl << EOF
+  my $count = VIM::Eval('a:count');
+  VIM::Browser::nextInputChoice($count);
+EOF
+endfunction
+
+function! BrowserPrevChoice(count)
+  perl << EOF
+  my $count = VIM::Eval('a:count');
+  VIM::Browser::nextInputChoice(-$count);
+EOF
+endfunction
+
+function! BrowserBookmark(name, del)
   perl << EOF
   my $name = VIM::Eval('a:name');
   my $del = VIM::Eval('a:del');
@@ -178,7 +229,7 @@ function! Bookmark(name, del)
 EOF
 endfunction
 
-function! ChangeBookmarkFile(file, create)
+function! BrowserChangeBookmarkFile(file, create)
   perl << EOF
   use VIM::Browser;
   my $file = VIM::Eval('a:file');
@@ -187,7 +238,7 @@ function! ChangeBookmarkFile(file, create)
 EOF
 endfunction
 
-function! ListBookmarks(...)
+function! BrowserListBookmarks(...)
   let file = a:0 ? a:1 : ''
   perl << EOF
   use VIM::Browser;
@@ -196,7 +247,7 @@ function! ListBookmarks(...)
 EOF
 endfunction
 
-function! SaveLink(...)
+function! BrowserSaveLink(...)
   let file = a:0 ? a:1 : ''
   perl << EOF
   my $file = VIM::Eval('file');
@@ -204,7 +255,7 @@ function! SaveLink(...)
 EOF
 endfunction
 
-function! CompleteBkmkFile(...)
+function! BrowserCompleteBkmkFile(...)
   perl <<EOF
   use VIM::Browser;
   $Vim::Variable{'result'} = VIM::Browser::listBookmarkFiles();
@@ -212,7 +263,7 @@ EOF
   return result
 endfunction
 
-function! CompleteBrowse(Arg, CmdLine, Pos)
+function! BrowserCompleteBrowse(Arg, CmdLine, Pos)
   perl <<EOF
   use VIM::Browser;
   $$_ = $Vim::Variable{"a:$_"} foreach qw(Arg CmdLine Pos);
@@ -221,3 +272,6 @@ EOF
   return result
 endfunction
 
+
+""" Vim modeline: (Must be the last line in the file!)
+""" vim: set co=80 lines=25:

@@ -1,0 +1,27 @@
+* Version 0.2
+
+Main Improvements:
+	- Added forms support. All input kinds are supported except for 
+	  textarea, file and multiple choice options. Thus, eg, google can be 
+	  used
+	- Made less system dependent. No known system dependent parts remain.  
+	  Most features should now work on any platform. Partially tested on 
+	  windows, thanks to Suresh Govindachar.
+	- A command line (perl) script, 'vimbrowse.pl', now allows lunching 
+	  vim as a browser from the command line.
+	- Numerous bugs were fixed.
+
+Incompatible changes:
+	- All the plugin's related data is now kept in one directory, 
+	  specified by g:browser_data_dir. In particular, if 
+	  g:browser_addrbook_dir is not explicitly set, the bookmarks 
+	  directory now resides in that directory.
+	- The default command names were changed to contain the prefix 
+	  'Browser', to reduce the risk of incompatibility with other plugins.  
+	  The original (shorter) commands can be restored by installing 
+	  plugin/browser_short.vim from the 'extra' directory.
+	
+
+* Version 0.1
+
+	Initial Version

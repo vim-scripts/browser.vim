@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: August 10, 2004
+# Last Update: September 03, 2004
 ###########################################################
 
 package VIM::Tie::Option;
@@ -48,10 +48,10 @@ sub DELETE {
 package Vim;
 use base 'Exporter';
 
-our @EXPORT_OK = qw(%Option %Variable error warning msg ask);
+our @EXPORT_OK = qw(%Option %Variable error warning msg ask debug);
 
 BEGIN {
-    our $VERSION = 0.1;
+    our $VERSION = 0.2;
 }
 
 tie our %Option, 'VIM::Tie::Option';
@@ -71,6 +71,12 @@ sub msg {
 
 sub ask {
     my $res = VIM::Eval('input(' . join(',', map { "'$_'" } @_) . ')');
+}
+
+sub debug {
+    my $msg = shift;
+    my $verbose = shift || 1;
+    msg($msg) if $Option{'verbose'} >= $verbose;
 }
 
 __DATA__
@@ -137,6 +143,11 @@ allowed, and they are concatenated.
 
 ask the user a question. The arguments and their meaning are the same as for 
 vim's I<input()> function.
+
+=item debug()
+
+Produce the message given in the first argument, but only if the value of the 
+C<verbose> option is at least the second argument (1 by default).
 
 =back
 

@@ -14,6 +14,22 @@ Example:
 
 will open a well known web site.
 
+The plugin is not loaded when C<compatible> is set. Loading the plugin can be 
+disabled by setting B<g:browser_plugin_version> before F<plugin/browser.vim> 
+is read.
+
+There is also a standalone script, B<vimbrowse.pl>, which can be used from 
+the command line to run vim in browser mode, like any other browser. It 
+contains its own documentation in pod form. To view it, run
+
+        vimbrowse.pl --man
+
+or
+
+        perldoc vimbrowse.pl
+
+or use the included man page.
+
 =head2 DOCUMENTATION
 
 This help text is translated from the F<browser.pod> file in the package 
@@ -40,11 +56,18 @@ window, not only a browser window. Usually, the affected browser window will
 be the last one that was active (if the currently active window is a browser 
 window, it will affected).
 
+All commands except for L</":Browse {uri} [args]"> have two versions: a 
+canonical version with a B<Browser> prefix, which is always available, and a 
+short version, which is available only if F<plugin/browser_short.vim> is 
+used. See L</"Extra Features"> for details. Some of the commands also have 
+key mappings associated with them. These mapping are only available if 
+F<ftplugin/browser/mappings.vim> is used. See L</"Mappings"> for details.
+
 =head1 Opening a new web page
 
 =over
 
-=item :Browse {uri}
+=item :Browse {uri} [args]
 
 Open the page with the given {uri}. If there is an open browser window, open 
 it there, otherwise open a new browser window (similarly to the I<:help> 
@@ -58,10 +81,27 @@ L</SCHEMES>.
 If the page was already opened, it will not be loaded again, use L</:Reload> 
 if you want to reload it.
 
-=item :SBrowse[!] {uri}
+If [args] are given, they are appended to the {uri} as follows: The first 
+argument is appended as is. Each of the others is appended with a B<&> in 
+front if it contains a B<=>, and with a B<+> otherwise. This looks strange, 
+but it allows you to do stuff like
 
-Same as L</":Browse {uri}">, but force splitting a new window, even if an  
-existing browser window exists. If B<!> is given, split vertically.
+        :Browse www.google.com/search?q= foo bar sitesearch=www.sf.net
+
+and get the right thing. This concatenation happens after the expansion of 
+{uri}, so if you have, in the current address book, a bookmark 
+B<googlesearch> with the above address, this is equivalent to
+
+        :Browse ::googlesearch foo bar sitesearch=www.sf.net
+
+(but see also L</":Google {words}"> for this particular example).
+
+=item :BrowserSplit[!] {uri} [args]
+
+=item :SBrowse[!] {uri} [args]
+
+Same as L</":Browse {uri} [args]">, but force splitting a new window, even if 
+an existing browser window exists. If B<!> is given, split vertically.
 
 =item :Reload
 
@@ -73,14 +113,21 @@ Reload the current page. If fetching the page failed, leaves the old content.
 
 =item <C-LeftMouse> X< browser-E<lt>C-LeftMouseE<gt> >
 
+=item :BrowserFollow
+
 =item :Follow
 
 Follow the link currently under the cursor. Obeys the same rules as 
-L</":Browse {uri}">. (In particular, the L</"Content-Type handling"> rules 
-apply.)
+L</":Browse {uri} [args]">. (In particular, the L</"Content-Type handling"> 
+rules apply.)
 
 Naturally, this command will only work when the currently active window is a 
 browser window.
+
+For form inputs, this sets the value of the input under the cursor. See 
+L</"Forms"> for details.
+
+=item :BrowserSaveLink [file]
 
 =item :SaveLink [file]
 
@@ -110,25 +157,37 @@ The browser history is supposed to resemble the tags I<tags> mechanism.
 
 =over
 
-=item CTRL-T X<browser-CTRL-T>
+=item [N]CTRL-T X<browser-CTRL-T>
 
-=item g<RightMouse> X< browser-gE<lt>RightMouseE<gt> >
+=item [N]g<RightMouse> X< browser-gE<lt>RightMouseE<gt> >
 
-=item <C-RightMouse> X< browser-E<lt>C-RightMouseE<gt> >
+=item [N]<C-RightMouse> X< browser-E<lt>C-RightMouseE<gt> >
+
+=item :[N]BrowserBack
 
 =item :[N]Back
+
+=item :[N]BrowserPop
 
 =item :[N]Pop
 
 Go back N items in the history of the current window. N defaults to 1.
 
+=item :[N]BrowserForward
+
 =item :[N]Forward
+
+=item :[N]BrowserTag
 
 =item :[N]Tag
 
 Go forward N items in the history of the current window. N defaults to 1.
 
+=item :BrowserHistory
+
 =item :History
+
+=item :BrowserTags
 
 =item :Tags
 
@@ -146,14 +205,17 @@ browser would accept, are also acceptable here. If the uri contains a scheme
 B<URI::Heuristic> for details. Uris starting with B<:> are reserved for 
 bookmarks.
 
+Note that when specifying a local file relative to the current directory, it 
+should start with B<./>, otherwise it will be treated as http.
+
 =head2 BOOKMARKS
 
 The bookmark system works as follows: Bookmarks are stored in files, which 
 reside in the directory given by L</g:browser_addrbook_dir>. Each file in 
-that directory that does not start with B<.> is considered a bookmarks file.  
-Each such file contains a list of aliases to uris. You can then use the 
-syntax B<:E<lt>fileE<gt>:E<lt>aliasE<gt>> for a uri. For example, if you have 
-a bookmark file called F<software> which contains an alias B<vim> to 
+that directory is considered a bookmarks file.  Each such file contains a 
+list of aliases to uris. You can then use the syntax 
+B<:E<lt>fileE<gt>:E<lt>aliasE<gt>> for a uri. For example, if you have a 
+bookmark file called F<software> which contains an alias B<vim> to 
 F<http://vim.sf.net>, then
 
         :Browse :software:vim
@@ -188,7 +250,12 @@ changes won't be take place until you restart vim.
 The B<uri> field in the bookmark file may contain anything that is valid as a 
 uri, including other bookmarks, which are expanded recursively.
 
+The bookmarks system can be disabled by setting L</g:browser_addrbook_dir> to 
+an empty string.
+
 =over
+
+=item :BrowserBookmark {alias}
 
 =item :Bookmark {alias}
 
@@ -196,9 +263,13 @@ Add a bookmark of the current page to the current bookmark file, under the
 alias {alias}. If there is already an alias by that name, it will be 
 replaced.
 
+=item :BrowserBookmark! {alias}
+
 =item :Bookmark! {alias}
 
 Delete the given alias from the current bookmark file.
+
+=item :BrowserAddrBook[!] {name}
 
 =item :AddrBook[!] {name}
 
@@ -207,6 +278,8 @@ name of a file in the directory specified by L</g:browser_addrbook_dir>, as
 explained above. If the file does not exist, the command fails, unless B<!> 
 is given, in which case it is created.
 
+=item :BrowserListBookmarks [name]
+
 =item :ListBookmarks [name]
 
 List all bookmarks in the bookmark file specified by [name]. If [name] is 
@@ -214,31 +287,200 @@ omitted, the current file is used.
 
 =back
 
+=head1 Forms
+
+Forms are html page areas where the user may supply data to the web server.  
+This includes, eg, various search services, such as google or 
+B<http://vim.sf.net/search.php>.
+
+A form usually consists of several B<inputs>. An input is one individual data 
+item in a form. The plugin currently supports all input kinds except for 
+B<file>, B<textarea> and B<option>s which allow selection of multiple items.
+
+There are several ways to change the value of an input: first, changing the 
+value by simply editing the buffer will work for every input except for 
+B<password>. This is not recommended, though (except for B<text> inputs), 
+since it may lead to errors. The L</":Follow"> command and its variants can 
+be used to modify the inputs, as explained below. In addition, there is a 
+form specific command:
+
+=over
+
+=item <CR> X< browser-E<lt>CRE<gt> >
+
+=item :Click
+
+=item :BrowserClick
+
+The same as L</":Follow">, but works only for form inputs. See below for the 
+specific details for each input type.
+
+=back
+
+The following input types are supported:
+
+=head3 text inputs
+
+X< browser-i_E<lt>TabE<gt> >
+
+X< browser-i_E<lt>S-TabE<gt> >
+These are one line areas where the user is expected to enter some text, eg, 
+search terms. The input will start with B<]E<gt>>, with nothing till the end 
+of the line. Clicking such an input will just cause vim to enter insert mode.  
+Note that the whole input must remain on one line.  Pressing <Tab> or <S-Tab> 
+will exit insert mode and put the cursor on the next or previous link or 
+input, just like L</":[N]NextLink">.
+
+=head3 submit inputs
+
+The submit button looks like a normal link, usually with the word B<Submit> 
+as its content. Clicking it will submit the data filled in the other inputs 
+of this form.
+
+=head3 radio inputs
+
+Radio buttons are used to choose one of several options displayed on the 
+page. A radio button looks like B<(*)> if selected, B<( )> otherwise.  
+Clicking the button will select it instead of the currently selected one.  
+There is a extra way to modify the values of B<radio> and B<option> inputs:
+
+=over
+
+=item [N]<C-N> X< browser-E<lt>C-NE<gt> >
+
+=item :[N]BrowserNextChoice
+
+=item :[N]NextChoice
+
+Change the value of the input under the cursor, which must be either a radio 
+button or an option, to the N-th next one. N defaults to 1. For radio 
+buttons, but not for options, the operation is cyclic: pressing <C-N> when 
+the selected button is the last one will select the first one. Note that for 
+radio buttons, the cursor need not be on the selected button, but only on one 
+of the buttons from the same group.
+
+=item [N]<C-P> X< browser-E<lt>C-PE<gt> >
+
+=item :[N]BrowserPrevChoice
+
+=item :[N]PrevChoice
+
+Same as L</":[N]NextChoice"> above, but rotate backwards.
+
+=back
+
+=head3 option inputs
+
+An option input also allows to choose one value out of several, but only the 
+currently selected option is displayed. This is usually implemented as a 
+dropdown menu. The selected option will appear between square brackets. When 
+clicked, the user will be presented with a menu of all possible choices. In 
+addition, it is possible to cycle through the values (see 
+L</":[N]NextChoice">), as with radio buttons.
+
+Hint: The B<v> and B<c> flags of C<guioptions> control the behaviour of the 
+menu when the gui is running.
+
+=head3 checkbox inputs
+
+A checkbox button allows to choose between boolean values. It appears as 
+B<[X]> when selected, B<[ ]> otherwise. Clicking it toggles the value.
+
+=head3 password inputs
+
+Password inputs are used for entering secret data, like, well, passwords.  
+They will appear as B<[######]> when a value is set, and as B<[______]> 
+otherwise. Clicking it will prompt the user for the value, using 
+I<inputsecret()>. Unlike the other inputs, this one can not be editted 
+directly, and clicking it is the only way to set its value.
+
 =head1 Miscellaneous commands
 
 =over
+
+=item :BrowserShowHeader
 
 =item :ShowHeader
 
 Show some of the header fields in the current page.
 
+=item :BrowserHideHeader
+
 =item :HideHeader
 
 Hide fields that were displayed by L</:ShowHeader>.
+
+=item :BrowserViewSource[!]
 
 =item :ViewSource[!]
 
 Open a new window, with the source of the current page displayed. If B<!> is 
 given, split vertically.
 
+=item [N]<Tab> X< browser-E<lt>TabE<gt> >
+
+=item :[N]BrowserNextLink
+
 =item :[N]NextLink
 
 Jump to the N-th next link, from the current cursor position. N defaults to 
 1. Works only in a browser window.
 
+=item [N]<S-Tab> X< browser-E<lt>S-TabE<gt> >
+
+=item :[N]BrowserPrevLink
+
 =item :[N]PrevLink
 
 Same as L</:[N]NextLink>, but backwards.
+
+=back
+
+=head1 Mappings
+
+The key mappings are only available if the F<ftplugin/browser/mappings.vim> 
+file from the F<extra> directory is installed. When this file is installed, 
+the following key mappings are available:
+
+=over
+
+=item *
+
+<C-]>, g<LeftMouse>, <C-LeftMouse>: follow link or click form input under the 
+cursor (L</:BrowserFollow>)
+
+=item *
+
+<C-T>, g<RightMouse>, <C-RightMouse>: go back in history (L</:[N]BrowserBack>)
+
+=item *
+
+<Tab>, <S-Tab>: next/previous link, also in insert mode 
+(L</:[N]BrowserNextLink>)
+
+=item *
+
+<C-N>, <C-P>: Rotate input value, for radio buttons and options 
+(L</:[N]BrowserNextChoice>)
+
+=item *
+
+<CR>: Click form input, change value or submit (L</:BrowserClick>)
+
+=item *
+
+X< browser-E<lt>SpaceE<gt> >
+<Space>: Scroll one page forward
+
+=item *
+
+X< browser-b >
+b: Scroll one page backward
+
+=item *
+
+X< browser-q >
+q: Close the browser window
 
 =back
 
@@ -249,17 +491,17 @@ function that don't.
 
 =over
 
-=item ShowLinkTarget()
+=item BrowserShowLinkTarget()
 
 Show the uri of the link currently under the cursor. This is called when 
 there was no keypress for C<updatetime> ms, via the I<CursorHold> event.
 
-=item CompleteBkmkFile()
+=item BrowserCompleteBkmkFile()
 
 Lists all bookmark files. Used for completion of bookmark file names in 
 commands.
 
-=item CompleteBrowse()
+=item BrowserCompleteBrowse()
 
 Returns completion lists, for complete a uri. This will list bookmark files, 
 bookmarks or files, depending on the number of B<:> in the initial segment.  
@@ -268,21 +510,87 @@ type of this and the previous function.
 
 =back
 
-=head1 Settings
+=head1 Extra Features
 
-All settings are controlled by global variables whose name start with 
-B<browser_>. Examples and default values are given in the beginning of the 
-F<browser.vim> plugin.
+Some features are available only if the files in the F<extra> directory of 
+the distribution are installed. This is so to avoid possible incompatibility 
+with other plugins and with user settings. The rest of the plugin does not 
+depend on them, and they can be freely modified (though it is still 
+preferable to do the modifications elsewhere, to prevent overwriting by a 
+later version). They provide the following features:
+
+=head3 F<ftplugin/browser/mappings.vim> X<browser-mappings.vim>
+
+Key mappings available in the browser window. See L</Mappings> for details.
+
+=head3 F<plugin/browser_short.vim> X<browser-browser_short.vim>
+
+Short version of commands. Contains the definitions of all commands that do 
+not start with the B<Browser> prefix, except for L</":Browse {uri} [args]">, 
+which is part of the main package. The loading of this plugin can be avoided 
+even if it is installed, by setting the L</g:browser_short_version> variable.
+
+=head3 F<syntax/browser_highlight.vim> X<browser-browser_highlight.vim>
+
+Highlight definitions corresponding to some html tags. Tries to setup a 
+minimal highlighting for tags like B<bold>, trying to maintain their original 
+meaning. Can be overriden by later settings, or by setting 
+L</g:browser_{attr}_highlight> variables.
+
+=head3 F<plugin/browser_extra.vim> X<browser-browser_extra.vim>
+
+Provides some extra convinience commands. Currently contains:
 
 =over
 
+=item :Google {words}
+
+Search the web for the given {words}, using google.
+
+=item :VimSearch {type} {words}
+
+Search the vim site for an item of the given {type}, containing the given 
+{words}. {type} may be any of the possible script types on the vim site 
+(B<colorscheme>, B<indent>, etc.), B<tip> for finding a tip, and B<script> to 
+find any script.
+
+=item :VimScript {id}
+
+Open the page of the vim script with the given {id}
+
+=item :VimTip {id}
+
+Open the tip with the given {id}
+
+=back
+
+Loading of this plugin can be avoided by setting L</g:browser_extra_version>.
+
+=head1 Settings
+
+All settings are controlled by global variables whose name start with 
+B<browser_>. Some examples and default values are given in the beginning of 
+the F<browser.vim> plugin. The recommended place for setting these variables 
+is F<after/plugin/browser.vim> (in some directory in the C<runtimepath>).
+
+=over
+
+=item g:browser_data_dir
+
+Default: The F<browser> sub directory of the first writeable directory in
+C<runtimepath>.
+
+The directory where all the plugin's related data is maintained.
+
 =item g:browser_addrbook_dir
 
-Default: F<$HOME/.vim/addressbooks/>.
+Default: The F<addressbooks> sub directory of L</g:browser_data_dir>.
 
-The directory where bookmark files are stored. Any (non-hidden) file in this 
+The directory where bookmark files are stored. Any file in this 
 directory is considered to be a bookmarks file. See L</BOOKMARKS> for 
 details.
+
+To disable the whole bookmarks system, set this option to the empty string.
 
 =item g:browser_default_addrbook
 
@@ -296,12 +604,30 @@ Default: B<$EMAIL>
 
 The e-mail address to send in the GET request for web pages.
 
+=item g:browser_cookies_file
+
+Default: F<cookies.txt> in L</g:browser_data_dir>.
+
+The name of the file where cookies are stored. Set to empty to disable 
+cookies.
+
 =item g:browser_assumed_encoding
 
 Default: B<utf-8>
 
 The web page encoding to assume, if it can not be deduced from the page 
 headers.
+
+=item g:browser_plugin_version
+
+=item g:browser_short_version
+
+=item g:browser_extra_version
+
+These variables are set to the plugin version in the files
+F<plugin/browser.vim>, F<plugin/browser_short.vim> and
+F<plugin/browser_extra.vim>, resp. If they are defined before the
+corresponding plugin is loaded, the loading of that plugin is prevented.
 
 =back
 
@@ -353,9 +679,13 @@ Example: the plugin defines the following defaults:
         let g:browser_italic_highlight='UnderLine'
 
 This implies that italic text will appear like _/this/_ in the translated 
-text, and will be highlighted with the B<UnderLine> group (except for the 
-B<_/> and B</_>, which will be hidden). On the other hand, 
+text, and will be highlighted with the B<UnderLine> group (except for the  
+B<_/> and B</_>, which will be hidden). On the other hand,  
 B<g:browser_em_start> is not defined, so it will appear the same as italic.
+
+Default highlighting for these groups is available when 
+F<syntax/browser_highlight.vim> from the F<extra> directory is installed (see 
+L</"Extra Features">).
 
 =head3 Html attributes
 
@@ -400,9 +730,9 @@ full uri in question.
 =back
 
 Once a handler is defined, it is used whenever a uri of this type is 
-requested (eg, in L</":Browse {uri}"> commands, when following a link, etc.).  
-This is done after the uri expansion, so bookmarks whose target is such a uri 
-are affected as well.
+requested (eg, in L</":Browse {uri} [args]"> commands, when following a link, 
+etc.).  This is done after the uri expansion, so bookmarks whose target is 
+such a uri are affected as well.
 
 For example, the definition
 
@@ -414,7 +744,7 @@ allows you to continue browsing while the program is open.
 
 =head1 VERSION
 
-For vim version 6.3
+Version 0.2. For vim version 6.3
 
 =head1 AUTHOR
 

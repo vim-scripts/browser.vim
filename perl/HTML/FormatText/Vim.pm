@@ -1,9 +1,12 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: August 10, 2004
+# Last Update: September 02, 2004
 ###########################################################
 
 package HTML::FormatText::Vim;
+# for some reason, 'use base' doesn't fail when the base cannot be loaded, so
+# we 'use' it explicilty
+use HTML::FormatText;
 use base qw(HTML::FormatText);
 use Data::Dumper;
 use URI;
@@ -12,7 +15,7 @@ use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.1;
+    our $VERSION = 0.2;
 }
 
 # translation from attribute names (as in the perl modules and the vim 
@@ -33,8 +36,9 @@ our %Markup = qw(
 
 sub configure {
     my ($self, $args) = @_;
-    $self->{'base'} = delete $args->{'base'};
+    $self->{$_} = delete $args->{$_} foreach qw(base forms);
     $self->{'line'} = 0;
+    $self->{'formcount'} = 0;
     $self->{$_} = delete $args->{$_} 
         foreach grep { /_(start|end)/o } keys %$args;
     $self->SUPER::configure($args);
@@ -44,6 +48,10 @@ sub nl {
     my $self = shift;
     $self->{'line'}++;
     $self->SUPER::nl(@_);
+}
+
+sub br_start {
+    shift->nl(@_);
 }
 
 sub a_start {
@@ -62,7 +70,7 @@ sub a_start {
 
 # we keep count of the current 'line'. The curret column is in 'curpos' 
 # (though we probably shouldn't have counted on it). This way we generate the 
-# list of links perl line.
+# list of links per line.
 sub a_end {
     my $self = shift;
     my $node = $_[0];
@@ -83,6 +91,160 @@ sub a_end {
     $self->SUPER::a_end(@_);
 }
 
+# forms
+sub form_start {
+    my $self = shift;
+    $self->{'form'} = $self->{'forms'}[$self->{'formcount'}++];
+}
+
+sub input_start {
+    my ($self, $node) = @_;
+    my $type = $node->attr('type');
+    my $form = $self->{'form'};
+    my $input = $form->find_input($node->attr('name'), $type);
+    my $line = $self->{'line'};
+    my ($from, $to, $update, $target, $getVal, $setVal);
+    if ( not $type or $type eq 'text' ) {
+        $from = $self->{'curpos'} + 3;
+        $to =  $self->{'rm'};
+        $getVal = sub {
+            my $text = shift->getLine($line);
+            my $res = substr($text, $from, $to-$from+1);
+            $res =~ s/^\s*//o;
+            $res =~ s/\s*$//o;
+            $res
+        };
+        $setVal = sub {
+            my $page = shift;
+            my $text = $page->getLine($line);
+            substr($text, $from, $to-$from+1) = shift;
+            $page->setLine($line, $text);
+        };
+        $update = sub {
+            $input->value(&$getVal(shift));
+        };
+        $self->out( ']> ' );
+        $self->nl;
+    } elsif ( $type eq 'submit' or $type eq 'image' ) { 
+      # or $type eq 'reset' ) {
+        my $value = $node->attr('value') || 'Submit'; #  || "\u$type";
+        $from = $self->{'curpos'} + 3;
+        $self->out( "<<$value>>" );
+        $to = $self->{'curpos'}-3;
+        $setVal = $getVal = $update = sub { 1 };
+        $target = sub {
+            my $obj = shift;
+            map { &{$_->{'update'}}($obj) } @{$form->{'vimdata'}};
+            my $req = $input->click($form, 1, 1);
+        };
+    } elsif ( $type eq 'radio' ) {
+        $self->out( '(' . ($node->attr('checked') ? '*' : ' ') . ')' );
+        $from = $to = $self->{'curpos'} - 2;
+        my $value = $node->attr('value');
+        $getVal = sub {
+            substr(shift->getLine($line), $from, 1)
+        };
+        $setVal = sub {
+            my $page = shift;
+            my $text = $page->getLine($line);
+            substr($text, $from, 1) = shift;
+            $page->setLine($line, $text);
+        };
+        $update = sub {
+            $input->value($value) if &$getVal(shift) eq '*';
+        };
+    } elsif ( $type eq 'checkbox' ) {
+        $self->out( '[' . ($node->attr('checked') ? 'X' : ' ') . ']' );
+        $from = $to = $self->{'curpos'} - 2;
+        my $value = $node->attr('value');
+        $getVal = sub {
+            substr(shift->getLine($line), $from, 1)
+        };
+        $setVal = sub {
+            my $page = shift;
+            my $text = $page->getLine($line);
+            substr($text, $from, 1) = shift;
+            $page->setLine($line, $text);
+        };
+        $update = sub {
+            $input->value(&$getVal(shift) eq 'X' ? $value : undef);
+        };
+    } elsif ( $type eq 'password' ) {
+        my $size = $node->attr('size') || 6;
+        $from = $self->{'curpos'} + 2;
+        $self->out( '[' . '_' x $size . ']' );
+        $to = $self->{'curpos'} - 2;
+        # getval will return whether this is set or not
+        $getVal = sub { $input->value ? 1 : 0 };
+        $setVal = sub {
+            my $page = shift;
+            my $value = shift;
+            $input->value($value);
+            my $text = $page->getLine($line);
+            substr($text, $from, $size) = ($value ? '#' : '_') x $size;
+            $page->setLine($line, $text);
+        };
+        $update = sub { 1 };
+    
+    } else {
+        return
+    }
+    my $inDesc = {
+        form => $form,
+        input => $input,
+        from => $from,
+        to => $to,
+        update => $update,
+        target => $target,
+        getval => $getVal,
+        setval => $setVal,
+    };
+    push @{$self->{'links'}[$line]}, $inDesc;
+    push @{$form->{'vimdata'}}, $inDesc;
+}
+
+sub select_start {
+    my ( $self, $node ) = @_;
+    my $form = $self->{'form'};
+    my $name = $node->attr('name');
+    my $input = $form->find_input($name, 'option');
+    my @values = $input->value_names;
+    my $line = $self->{'line'};
+    my $len = 0;
+    map { $len = length if length > $len } @values;
+    my $from = $self->{'curpos'} + 2;
+    $self->out("[$values[0]" . ( ' ' x ($len - length($values[0]))) . ']');
+    my $to = $self->{'curpos'} - 2;
+    my ($update, $getVal, $setVal);
+    $getVal = sub {
+        my $text = shift->getLine($line);
+        my $res = substr($text, $from, $len);
+        $res =~ s/^\s*//o;
+        $res =~ s/\s*$//o;
+        $res
+    };
+    $setVal = sub {
+        my $page = shift;
+        my $text = $page->getLine($line);
+        substr($text, $from, $len) = sprintf("%-${len}s", shift);
+        $page->setLine($line, $text);
+    };
+    $update = sub {
+        $input->value(&$getVal(shift));
+    };
+    my $inDesc = {
+        form => $form,
+        input => $input,
+        from => $from,
+        to => $to,
+        update => $update,
+        target => undef,
+        getval => $getVal,
+        setval => $setVal,
+    };
+    push @{$self->{'links'}[$line]}, $inDesc;
+    push @{$form->{'vimdata'}}, $inDesc;
+}
 
 my @line = qw(= - ^ + " .);
 
@@ -99,12 +261,20 @@ for my $markup ( keys %Markup ) {
     my $end = $Markup{$markup} . '_end';
     *$start = sub {
         my $self = shift;
-        $self->out($self->{"${markup}_start"});
+        if (exists $self->{'href'}) {
+            $self->{'lasttext'} .= $self->{"${markup}_start"};
+        } else {
+            $self->out($self->{"${markup}_start"});
+        }
         eval '$self->SUPER::' . $start . '(@_)';
     };
     *$end = sub {
         my $self = shift;
-        $self->out($self->{"${markup}_end"});
+        if (exists $self->{'href'}) {
+            $self->{'lasttext'} .= $self->{"${markup}_end"};
+        } else {
+            $self->out($self->{"${markup}_end"});
+        }
         eval '$self->SUPER::' . $end . '(@_)';
     }
 }
@@ -209,7 +379,7 @@ sub pre_out {
 
 sub textflow {
     my $self = shift;
-    if (exists $self->{'href'}) {
+    if (exists $self->{'href'} or exists $self->{'selecttext'}) {
         $self->{'lasttext'} .= "@_";
     } else {
         $self->SUPER::textflow(@_);

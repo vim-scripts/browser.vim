@@ -9,27 +9,66 @@ URI from cpan are required.  One way to install these modules is by running:
 
     cpan LWP::UserAgent
 
-etc.
+etc. Most linux distribution provide their own way of installing perl 
+modules. The corresponding packages should be named something like 
+HTML-Format, libwww-perl and URI.
 
 The plugin was tested on linux, with vim 6.3 and perl 5.8.4.
 
 2. Installation
 
-There are two sub-directories, 'vim' and 'perl'. The contents of the 'vim' 
-directory should be copied to some directory on the runtimepath. The contents 
-of the 'perl' directory should be copied either to a directory on the perl 
-search path, or to a subdirectory named 'perl' of a directory in the 
-runtimepath.
+There are three sub-directories, 'vim', 'perl' and 'extra'. The contents of 
+the 'vim' directory should be copied to some directory on the runtimepath.  
+Example (assuming you are in the main directory of the distribution):
+
+  cp -r vim/* ~/.vim
+  
+The contents of the 'perl' directory should be copied either to a directory 
+on the perl search path, or to a subdirectory named 'perl' of a directory in 
+the runtimepath. Example:
+
+  cp -r perl ~/.vim
+
+The contents of the 'extra' directory should be treated the same as the 'vim' 
+directory. Installing it is optional, but recommended, as it provides extra 
+features and a simpler interface. The only reason not to install it is 
+possible collisions with other plugins. Example:
+
+  cp -r extra/* ~/.vim
+
+It is possible to install only some of them. See the section "Extra Features" 
+in the documentation to find out what each file provides.
 
 3. Documentation
 
-The vim help file is in the doc subdirectory. Don't forget to run :helptags 
-after copying it (see :help add-local-help for details).
+The vim help file is in the vim/doc subdirectory. Don't forget to run 
+:helptags after copying it (see :help add-local-help for details). Example:
 
-This help file is generated from browser.pod in the current directory. You 
-may use it to view the documentation from the command line, as in
+  :helptags ~/.vim/doc
+
+This help file is generated from browser.pod in the main directory. You may 
+use it to view the documentation from the command line, as in
 
     perldoc browser.pod
+
+4. The vimbrowse.pl script
+
+The 'bin' subdirectory contains vimbrowse.pl. This is a (perl) script that 
+launches vim in browser mode. Thus it can be used like any other browser from 
+the command line.
+
+Documentation is available as embeded pod in the script itself. Run
+
+    perldoc vimbrowse.pl
+
+or
+
+    vimbrowse.pl --man
+
+to view it. The same is available also in the man page, vimbrowse.1. To 
+install it, just copy the script to any directory on your $PATH (make sure 
+that permissions are ok). To install the man page, put it in the 'man1' sub 
+directory of a directory in your $MANPATH.
 
 That's it!
 

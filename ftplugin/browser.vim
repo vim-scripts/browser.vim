@@ -1,25 +1,20 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: August 10, 2004
+" Last Update: September 02, 2004
 " Description: settings for a browser buffer. part of the browser plugin
-" Version: 0.1
+" Version: 0.2
 
+" make sure the browser buffers are not associated with any files
 setlocal buftype=nofile
 setlocal nobuflisted
 setlocal bufhidden=hide
-setlocal foldmethod=marker
 setlocal noswapfile
+" folding is used only for the header fields
+setlocal foldmethod=marker
+" the only editing that should be going on is text inputs in forms. Make sure 
+" we don't get any extra lines there
+setlocal formatoptions=
 if has('conceal')
   setlocal conceallevel=2
 endif
 let &winheight=&helpheight
-
-nmap <buffer>  :Follow<CR>
-nmap <buffer> g<LeftMouse> :Follow<CR>
-nmap <buffer> <C-LeftMouse> :Follow<CR>
-nmap <buffer>  :execute v:count1 . 'Back'<CR>
-nmap <buffer> g<RightMouse> :execute v:count1 . 'Back'<CR>
-nmap <buffer> <C-RightMouse> :execute v:count1 . 'Back'<CR>
-nmap <buffer> <Tab> :execute v:count1 . 'NextLink'<CR>
-nmap <buffer> <S-Tab> :execute v:count1 . 'PrevLink'<CR>
-
