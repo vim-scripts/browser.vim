@@ -4,11 +4,12 @@ Installation of the browser.vim plugin
 1. Requirements
 
 This plugin is mostly written in perl, so you need a perl-enable vim version  
-to use it. In addition, the perl modules libwww-perl and URI from cpan are 
-required.  One way to install these modules is by running:
+to use it. In addition, the perl modules HTML::FormatText, LWP::UserAgent and 
+URI from cpan are required.  One way to install these modules is by running:
 
-    cpan libwww-perl
-    cpan URI
+    cpan LWP::UserAgent
+
+etc.
 
 The plugin was tested on linux, with vim 6.3 and perl 5.8.4.
 
