@@ -1,9 +1,9 @@
 " File Name: browserBkmkPage.vim
 " Maintainer: Moshe Kaminsky
-" Last Modified: Sat 20 Nov 2004 09:59:22 PM IST
+" Last Modified: Tue 15 Mar 2005 11:24:24 AM IST
 " Description: syntax for a browser buffer containing bookmarks. part of the 
 " browser plugin
-" Version: 1.0
+" Version: 1.1
 "
 
 if version < 600
@@ -23,6 +23,8 @@ syntax match browserBkmkHeader /\%1l.*/ display
 syntax match browserBkmkUL /\%2l.*/ display
 syntax region browserBkmkFold start=/^+/ end=/^$/ transparent fold
 syntax match browserBkmkTree /^  [|`]->/ display
+syntax region browserHistComment matchgroup=browserBkmkTree 
+      \start=/^  |\? / end=/$/ oneline display
 
 setlocal foldmethod=syntax
 
@@ -45,6 +47,7 @@ if version >= 508 || !exists("did_c_syn_inits")
   HiLink browserBkmkHeader DiffChange
   HiLink browserBkmkUL Constant
   HiLink browserBkmkTree Special
+  HiLink browserHistComment Repeat
   
   delcommand HiLink
 endif

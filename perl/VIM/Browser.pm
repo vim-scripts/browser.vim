@@ -1,6 +1,6 @@
 # File Name: Browser.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last modified: Wed 24 Nov 2004 06:09:21 PM IST
+# Last modified: Tue 15 Mar 2005 11:28:22 AM IST
 ###########################################################
 
 ############# description of this module ##################
@@ -45,6 +45,7 @@
 package VIM::Browser::AddrBook;
 use base 'Tie::Hash';
 use Vim qw(debug);
+use open ':utf8';
 
 sub TIEHASH {
     my $class = shift;
@@ -206,6 +207,11 @@ for my $method ( qw(accessed uri title) ) {
     }
 }
 
+sub actime {
+    HTTP::Date::time2str(shift->accessed);
+}
+    
+
 sub hlt {
     my ($x, $y);
     if ( $_[2] ) {
@@ -228,8 +234,10 @@ package VIM::Browser::History;
 use UNIVERSAL qw(isa);
 use Vim qw(debug);
 use Data::Dumper;
+use File::Basename;
 use URI;
 use Carp;
+use open ':utf8';
 
 sub TIEARRAY {
     my $class = shift;
@@ -239,6 +247,7 @@ sub TIEARRAY {
         size => 30,
         file => shift,
     } => $class);
+    VIM::Browser::makedir(dirname($self->{'file'}), 'history');
     if ( open my $IN, $self->{'file'} ) {
         # read events
         while ( <$IN> ) {
@@ -347,7 +356,7 @@ sub UNSHIFT {
 
 sub save {
     my $self = shift;
-    open my $OUT, '>', $self->{'file'} 
+    open my $OUT, '>:utf8', $self->{'file'} 
         or Vim::warning('Failed to open history file ', $self->{'file'}) 
            and return;
     foreach ( @{$self->{'events'}} ) {
@@ -367,12 +376,29 @@ use HTTP::Date;
 
 sub request {
     my $self = shift;
+    my $request = shift;
     my $hist = tied @VIM::Browser::History;
-    my $response = new HTTP::Response HTTP::Status::RC_OK, '', [
-        'Last-Modified' => HTTP::Date::time2str($hist->accessed),
-        'Content-Type' => 'history',
-        ];
-    $response->request(shift);
+    my $event = $request->uri()->authority();
+    my $response;
+    if ( $event ) {
+        # we want a specific event in the global history
+        my $n = $hist->FETCHSIZE() - $event;
+        my $ev = $VIM::Browser::History[$n];
+        if ( defined $ev ) {
+            $response = new HTTP::Response HTTP::Status::RC_TEMPORARY_REDIRECT, 
+                            '', [ Location => $ev->uri ];
+        } else {
+            $response = new HTTP::Response HTTP::Status::RC_CONFLICT, 
+                            "History event $event does not exist";
+        }
+    } else {
+        # we want the history page
+        $response = new HTTP::Response HTTP::Status::RC_OK, '', [
+            'Last-Modified' => HTTP::Date::time2str($hist->accessed),
+            'Content-Type' => 'history',
+            ];
+    }
+    $response->request($request);
     $response
 }
 
@@ -388,6 +414,8 @@ use URI;
 use Vim;
 use Data::Dumper;
 use Carp qw(carp croak verbose);
+use warnings;
+use open ':utf8';
 
 # arguments for construction: after the class name we have an HTTP::Response, 
 # and then pairs of key => value, with values for the various attributes.  
@@ -458,12 +486,11 @@ sub new {
     };
     bless $self => $class;
     if ( $response ) {
-        $self->source = $response->content;
         $self->request = $response->request;
         $self->response = $response;
         $self->header = { 
-            'expires' => scalar(localtime($response->expires)),
-            'last modified' => scalar(localtime($response->last_modified)),
+            'expires' => scalar(localtime($response->expires || 0)),
+            'last modified' => scalar(localtime($response->last_modified || 0)),
             'content type' => scalar $response->content_type,
             'encoding' => VIM::Browser::getEncoding($response, 1),
             'language' => scalar $response->content_language,
@@ -478,7 +505,10 @@ sub new {
             $self->header->{'uri base'}->authority;
     }
     $self->{$_} = $args{$_} foreach keys %args;
-    $self->source = decode($self->header('encoding'), $self->source);
+    $self->source = $response->can('decoded_content') ? 
+        $response->decoded_content(
+            default_charset => $VIM::Browser::AssumedEncoding) : 
+        decode($self->header('encoding'), $response->content());
     $self->setSyntax;
     return $self;
 }
@@ -546,29 +576,32 @@ sub setSyntax {
     my $links = $self->{'links'};
     my $images = $self->{'images'};
     my $markup = $self->{'markup'};
-    for my $line ( 1..scalar(@$links) ) {
+    for my $line ( 1..$self->Count() ) {
         foreach ( @{$links->[$line-1]} ) {
             if ( $_->{'input'} ) {
                 my $type = $_->{'input'}->type;
                 next if grep { $type eq $_ } qw(text radio textarea);
             }
+            next unless ( defined($_->{'from'}) and defined($_->{'to'}));
             my $link = defined($_->{'target'});
             my $target = ($link and not ref $_->{'target'}) ? $_->{'target'} 
                                                             : '';
             my $visited = 
                 ($target and $VIM::Browser::URI{$target}) ? 'Followed' : '';
-            VIM::DoCommand(sprintf("SynMark %s %d %d %d %d",
-                                   $link ? $visited . 'Link' : 'Form',
-                                   $_->{'from'} + $link, 
-                                   $line, 
-                                   # this will become 0 if the value is INF, 
-                                   # which turns it to '$/' in synmark
-                                   $_->{'to'}+2 - $link, 
-                                   $line));
+            my $group = $link ? $visited . 'Link' : 'Form';
+            # for the sake of performance, use SynMark(Start|End), not 
+            # SynMark
+            VIM::DoCommand(
+                sprintf("SynMarkStart %s %d %d | SynMarkEnd %s %d %d",
+                        $group, $_->{'from'} + $link, $line, 
+                        # the column will become 0 if the value is INF, which 
+                        # turns it to '$/' in synmark
+                        $group, $_->{'to'} + 2 - $link, $line));
         }
         foreach ( @{$images->[$line-1]} ) {
-            VIM::DoCommand(sprintf("SynMark Image %d %d %d %d",
-                                   $_->{'from'}+1, $line, $_->{'to'}+1, $line));
+            VIM::DoCommand(
+                sprintf("SynMarkStart Image %d %d | SynMarkEnd Image %d %d",
+                         $_->{'from'}+1, $line,     $_->{'to'}+1, $line));
         }
         foreach ( @{$markup->[$line-1]} ) {
             VIM::DoCommand(sprintf("SynMark%s %s %d %d",
@@ -658,7 +691,10 @@ sub findLink {
     # no links in the header
     return undef if $row > $self->Count - $self->offset;
     my $links = $self->$list($row-1);
+    # avoid warning when the 'from' field is undefined
+    no warnings 'uninitialized';
     my @links = grep { $col >= $_->{'from'} and $col <= $_->{'to'} } @$links;
+    use warnings 'uninitialized';
     shift @links || undef;
 }
 
@@ -890,6 +926,7 @@ sub setPage {
     VIM::Browser::doCommand("buffer $buf");
     $self->page = $page;
     $page->windows($self->id) = 1;
+    VIM::Browser::set_status($page->uri());
     VIM::Browser::setupSidebar($buf) unless VIM::Browser::isRegular($self->id);
     $self->fragment = $fragment;
     VIM::Browser::doCommand($self->fragmentLine) if $fragment;
@@ -982,10 +1019,15 @@ package VIM::Browser;
 
 # from CPAN
 use LWP::UserAgent;
+use LWP::Debug qw(+);
+BEGIN {
+    undef &LWP::Debug::_log;
+}
 use URI;
 use URI::Heuristic qw(uf_uri);
 use URI::file;
 use HTML::Form 1.038;
+use HTTP::Headers::Util qw(split_header_words);
 
 # standard
 use Tie::Memoize;
@@ -1004,9 +1046,10 @@ use Mailcap;
 
 use warnings;
 use integer;
+use open ':utf8';
 
 BEGIN {
-    our $VERSION = 1.0;
+    our $VERSION = 1.1;
 }
 
 ## Vim Interface
@@ -1029,6 +1072,18 @@ sub msg {
     my $verbose = @_ ? shift : 1;
     Vim::msg($msg) if $Verbose >= $verbose;
 }
+
+sub set_status {
+    $Vim::Variable{'w:browser_status_msg'} = shift;
+    doCommand('redrawstatus');
+}
+
+sub LWP::Debug::_log {
+    my $msg = shift;
+    $msg =~ s/\n*$//;
+    set_status($msg) unless $msg eq '()';
+}
+
 
 # This is totally stupid, but it appears there is no simple way to get the 
 # file seperator for the current os.
@@ -1098,6 +1153,9 @@ our $InstDir = $Vim::Variable{'s:browser_install_dir'};
 
 our @RunTimePath = split /,/, $Vim::Option{'runtimepath'};
 
+# how verbose should we be
+tie our $Verbose, 'VIM::Scalar', 'g:browser_verbosity_level', 2;
+
 # The base directory for all our files. By default, the browser subdir of the 
 # first writeable directory in runtimepath
 tie our $DataDir, 'VIM::Scalar',
@@ -1164,6 +1222,9 @@ tie our $CookiesFile, 'VIM::Scalar', 'g:browser_cookies_file',
 # what to put in the From request header
 tie our $FromHeader, 'VIM::Scalar', 'g:browser_from_header', $ENV{'EMAIL'};
 
+# timeout for connecting (seconds)
+tie our $TimeOut, 'VIM::Scalar', 'g:browser_connect_timeout', 120;
+
 # an additional mailcap file used for vim
 tie our $MailCap, 'VIM::Scalar', 'g:browser_mailcap_file', 
     catfile($DataDir, 'mailcap.local');
@@ -1187,8 +1248,9 @@ tie our $TmpDir, 'VIM::Scalar', 'g:browser_temp_dir',
 # width of the sidebar (columns).
 tie our $SidebarWidth, 'VIM::Scalar', 'g:browser_sidebar_width', 25;
 
-# how verbose should we be
-tie our $Verbose, 'VIM::Scalar', 'g:browser_verbosity_level', 2;
+# the page to open for empty :Browse command
+tie our $HomePage, 'VIM::Scalar', 'g:browser_home_page', 
+    ( $ENV{'HOMEPAGE'} || $ENV{'HOME'} || 'http://vim.sf.net/' );
 
 
 ## GLOBAL STATE
@@ -1255,6 +1317,7 @@ tie our $CurrentBook, 'VIM::Scalar',
 our $Agent = new LWP::UserAgent
     agent => "VimBrowser/$VERSION ",
     from => $FromHeader,
+    timeout => $TimeOut,
     protocols_forbidden => [qw(mailto)],
     cookie_jar => $CookiesFile ? { file => $CookiesFile, autosave => 1 } 
                                : undef,
@@ -1262,9 +1325,6 @@ our $Agent = new LWP::UserAgent
     # at least for now, don't accept compressed encoding
     # default_headers => (new HTTP::Headers 'Accept-Encoding' => 'identity'),
     requests_redirectable => [qw(GET HEAD POST)];
-
-## install autocommands
-doCommand('call s:InstallAutoCommands()');
 
 ## Methods for dealing with the request and response
 
@@ -1288,21 +1348,16 @@ sub getEncoding {
     my $response = shift;
     my $nowarning = shift;
     my $encoding;
-    foreach ($response->header('content-type')) {
-        if ( /charset=(\S*)/ ) {
-            $encoding = $1;
-            last;
-        }
+    my @ctype = split_header_words($response->header('content-type'));
+    if (my $ctype = pop @ctype ) {
+        my %params = @$ctype;
+        $encoding = $params{'charset'};
     }
     if ( $encoding and not Encode::resolve_alias($encoding) ) {
         Vim::warning("$encoding: Unrecognized encoding") unless $nowarning;
         $encoding = undef;
     }
-    unless ($encoding) {
-        $encoding = $AssumedEncoding;
-        #Vim::warning("Unable to get page encoding, assuming $encoding") 
-        #unless $nowarning;
-    }
+    $encoding = $AssumedEncoding unless $encoding;
     $encoding;
 }
 
@@ -1419,7 +1474,9 @@ sub getAction {
         my @seg = $response->request->uri->path_segments;
         $_[1] = $seg[-1];
     }
+    no warnings;
     debug("Final action is: $action, @_");
+    use warnings;
     return ($action, @_);
 }
 
@@ -1457,7 +1514,7 @@ sub dispUriText {
         debug('Current buffer is ' . $buffer->Number);
         doCommand('ls!') if $Vim::Option{'verbose'} > 1;
         # for some reason, an extra buffer is created, wipe it out
-        doCommand('bwipeout #');
+        doCommand('bwipeout #') if $Vim::Variable{'v:version'} < 700;
     }
     $Vim::Option{'l:syntax'} = $syntax;
     my $mod = $Vim::Option{'l:modifiable'};
@@ -1547,12 +1604,16 @@ sub openUsing {
     my $prog = shift;
     my $cencoding = $response->content_encoding;
     debug("Content encoding is $cencoding") if $cencoding;
+    # should we decode the response using Mailcap?
+    my $should_decode = ($cencoding and 
+                        ($cencoding ne 'identity') and 
+                        not $response->can('decoded_content'));
     if ( $prog eq ':' ) {
         # show internally
-        if ( not $cencoding or $cencoding eq 'identity' ) {
-            return pageFromResponse($response);
-        } else {
+        if ( $should_decode ) {
             $prog = "cat '%s' |";
+        } else {
+            return pageFromResponse($response);
         }
     }
     my $ctype = $response->content_type;
@@ -1566,16 +1627,26 @@ sub openUsing {
         DIR => $TmpDir,
         UNLINK => 0,
         ;
-    if ( $cencoding and $cencoding ne 'identity' ) {
+    if ( $should_decode ) {
         close $TMP;
         my $unzip = 
             Mailcap::getView { $_->copiousoutput } "application/$cencoding";
         debug("Decompressing using: $unzip");
         $unzip = "| $unzip > '$TMP'";
-        open my $UZ, $unzip or die "Failed to decompress using $unzip";
+        unless ( open my $UZ, $unzip ) {
+            Vim::warning("Failed to decompress using $unzip");
+            return;
+        }
         print $UZ $response->content;
     } else {
-        print $TMP $response->content;
+        undef $@;
+        print $TMP $response->can('decoded_content') ? 
+                $response->decoded_content( charset => 'none' ) :
+                $response->content;
+        if ( $@ ) {
+            Vim::warning("Failed to decode $cencoding");
+            return;
+        }
         close $TMP;
     }
     my $cleanup = sub { unlink "$TMP" };
@@ -1591,6 +1662,7 @@ sub openUsing {
         # we got some text back
         $response->content_type('text/plain') unless defined $FORMAT{$ctype};
         $response->content(join("", @$res));
+        $response->content_encoding(undef);
         return pageFromResponse($response);
     } else { 0 }
 }
@@ -1656,7 +1728,22 @@ our %FORMAT = (
         my $response = shift;
         my %hints = @_;
         my $encoding = getEncoding($response);
-        my $html = decode($encoding, $response->content);
+        $@=undef;
+        my $html = $response->can('decoded_content') ?
+            $response->decoded_content(default_charset => $AssumedEncoding) :
+            decode($encoding, $response->content);
+        if ( $@ ) {
+            my $fallback = 'iso-8859-1';
+            Vim::warning(<<EOF);
+Failed decoding the content
+Try changing the value of browser_assumed_encoding to
+the expected character encoding of the page
+Falling back to $fallback
+
+EOF
+            $html = $response->decoded_content(charset => $fallback);
+        }
+        return [] unless $html;
         my $width = Vim::bufWidth;
         my $base = getBase($response);
         my @forms = HTML::Form->parse($html, $base);
@@ -1665,7 +1752,7 @@ our %FORMAT = (
             rm => $width,
             encoding => $encoding,
             # whether to break the line when reaching the right margin
-            breaklines => setting('break_lines', 0),
+            breaklines => setting('break_lines', 1),
             # the formatter will store the absolute uris for the links using 
             # this base
             base => $base,
@@ -1682,7 +1769,12 @@ our %FORMAT = (
     },
     'text/plain' => sub {
         # do nothing special
-        return [split "\n", shift->content], undef, undef, 
+        my $response = shift;
+        my $encoding = getEncoding($response);
+        my $content = $response->can('decoded_content') ?
+            $response->decoded_content(default_charset => $AssumedEncoding) :
+            decode($encoding, $response->content);
+        return [split "\n", $content], undef, undef, 
                undef, undef, undef, 'OFF';
     },
     'bookmarks' => sub {
@@ -1747,14 +1839,16 @@ our %FORMAT = (
             push @links, [], [];
             while ( $_ = shift @{$domain{$domain}} ) {
                 my $text = $_->title;
-                push @text, sprintf("  %s-> $text", 
-                                    @{$domain{$domain}} ? '|' : '`');
+                my $more = @{$domain{$domain}};
+                push @text, sprintf("  %s-> $text", $more ? '|' : '`');
+                push @text, sprintf("  %s     %s", $more ? '|' : ' ',
+                                    $_->actime);
                 push @links, [{
                     text => $text,
                     target => $_->uri->as_string,
                     from => 6,
                     to => length($text) + 5,
-                }];
+                }], [];
             }
         }
         return (\@text, \@links, undef, undef, undef, undef, 
@@ -1966,11 +2060,11 @@ EOF
     my $handler = setting("${scheme}_handler");
     my %flag = ( 
         s => "$uri", 
-        o => scalar $uri->opaque(), 
-        p => scalar $uri->path(),
-        f => scalar $uri->fragment(),
-        a => scalar $uri->authority(),
-        q => scalar $uri->query(),
+        o => $uri->can('opaque') ? scalar $uri->opaque() : '', 
+        p => $uri->can('path') ? scalar $uri->path() : '',
+        f => $uri->can('fragment') ? scalar $uri->fragment() : '',
+        a => $uri->can('authority') ? scalar $uri->authority() : '',
+        q => $uri->can('query') ? scalar $uri->query() : '',
         '%' => '%',
     );
     my $flags = join('', keys %flag);
@@ -2125,7 +2219,8 @@ sub reload {
 # if it is '!' split vertically. If no extra argument is given, split 
 # (horizontally) only if there is no open browser window
 sub browse {
-    $uri = canonical(split ' ', shift);
+    my $uri = shift || $HomePage;
+    $uri = canonical(split ' ', $uri);
     return unless defined $uri;
     return unless defined checkScheme($uri);
     my $vert = $_[0] || '';

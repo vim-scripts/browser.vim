@@ -1,3 +1,33 @@
+* Version 1.1 (Tue 15 Mar 2005 10:48:51 AM IST)
+
+Main Improvements:
+	- Added the uri history://n to access the n-th newest item in the 
+	  history. Similarly, the :History command may now accecpt a numeric 
+	  argument.
+	- The last access time for each link now appears on the history page
+	- Added the g:browser_connect_timeout variable to control when we give 
+	  up connecting to a remote site
+	- Added support for homepage in the plugin. :Browse and similar 
+	  commands can now be called with no arguments.
+	- Changed the loading of the plugin so that vim startup time is 
+	  improved.
+	- Added a command for showing the current mappings, and a command to 
+	  extend this list for user defined mappings
+	- Improved documentation and added the html version.
+
+Main code changes
+	- Changed cite markup to use synmark
+	- Using UTF-8 for all files
+	- Use the new decoded_content of HTTP::Response (when available)
+	- adapted for vim 7 (refrain from wiping out the extra buffer that was 
+	  created when using :file)
+	- use the browsedir() vim function in Vim::browse()
+
+Other changes:
+	- added explanation when content decoding fails
+	- show progress and uri on the status line (in fact, it's just the 
+	  debug output of LWP :)
+
 * Version 1.0 (Sat 20 Nov 2004 10:55:30 PM IST)
 
 Main Improvements:

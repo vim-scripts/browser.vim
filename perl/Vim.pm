@@ -16,7 +16,11 @@ sub FETCH {
 
 sub STORE {
     my ($self, $Opt, $Value) = @_;
-    $Value = "'$Value'" unless $Value+0 eq $Value;
+    unless ( $Value+0 eq $Value ) {
+        # string value
+        $Value =~ s/'/''/g;
+        $Value = "'$Value'";
+    }
     VIM::DoCommand('let &' . "$Opt=$Value");
 }
 
@@ -33,7 +37,11 @@ sub FETCH {
 
 sub STORE {
     my ($self, $Var, $Value) = @_;
-    $Value = "'$Value'" unless $Value+0 eq $Value;
+    unless ( $Value+0 eq $Value ) {
+        # string value
+        $Value =~ s/'/''/g;
+        $Value = "'$Value'";
+    }
     VIM::DoCommand("let $Var=$Value");
 }
 
@@ -185,7 +193,7 @@ our @EXPORT_OK = qw(%Option %Variable error warning msg ask debug bufWidth
 use Tie::Memoize;
 
 BEGIN {
-    our $VERSION = 1.0;
+    our $VERSION = 1.1;
 }
 
 tie our %Option, 'VIM::Tie::Option';
@@ -213,12 +221,19 @@ sub ask {
 }
 
 sub browse {
-    my ($save, $msg, $dir, $default) = @_;
+    my ($save, $msg, $initdir, $default) = @_;
     $dir = '' unless defined $dir;
-    $default = ' ' unless $default;
-    my $res = $Vim::Has{'browse'} ? 
-        VIM::Eval("browse($save, '$msg', '$dir', '$default')") :
-        ask("$msg ", $default);
+    $default = '' unless $default;
+    my $cmd;
+    if ( $save < 0 ) {
+        if ( VIM::Eval("exists('*browsedir')") ) {
+            $cmd = "browsedir('$msg', '$dir')";
+        } else {
+            $save = 0;
+        }
+    }
+    $cmd = "browse($save, '$msg', '$dir', '$default')" unless $cmd;
+    my $res = $Vim::Has{'browse'} ? VIM::Eval($cmd) : ask("$msg ", $default);
 }
 
 sub debug {
@@ -412,8 +427,9 @@ C<verbose> option is at least the second argument (1 by default).
 
 =item browse()
 
-Does the same as vim's I<browse()>, except it works also when vim is compiled 
-without B<+browse>, in which case it just asks for a file.
+Does the same as vim's I<browse()>, except it works also when vim is 
+compiled without B<+browse>, in which case it just asks for a file. If the 
+first argument (I<save>) is negative, opens a directory requester.
 
 =item bufWidth()
 

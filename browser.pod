@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-browser - a www browser plugin for vim
+browser - a WWW browser plugin for vim
 
 =head1 SYNOPSIS
 
@@ -70,15 +70,38 @@ See L</"Mappings"> for details. Some of the less basic features are made
 available via a different file, F<plugin/browser_extra.vim>, whose 
 installation is optional.
 
+=head2 Startup
+
+To improve vim startup speed, loading most of the plugin is deferred until it 
+is first used. Before the plugin is first used, only a subset of the commands 
+is available. These commands will be marked with {startup} in their 
+description. Generally, a command will exist only if it makes sense to use it 
+before the plugin was ever loaded.
+
+If you would like to initialize the plugin before it is used for the first 
+time, you may use:
+
+=over
+
+=item :BrowserInit
+
+Initialize the browser plugin. This loads all available commands, as well as 
+all the required perl modules. It is not required to use this command, it 
+will run automatically the first time a browser command is used.
+
+I guess I should add it, then: {startup}
+
+=back
+
 =head1 Opening a new web page
 
 =over
 
-=item :Browse[!] {uri} [args]
+=item :Browse[!] [uri] [args]
 
-Open the page with the given {uri}. If there is an open browser window, open 
+Open the page with the given [uri]. If there is an open browser window, open 
 it there, otherwise open a new browser window (similarly to the I<:help> 
-command). The {uri} specification may contain also bookmarks, see 
+command). The [uri] specification may contain also bookmarks, see 
 L</"Uri format"> for details. The page will be displayed according to its 
 content type, see L</"Content-Type handling">. Alternatively, if a handler 
 for the given scheme is defined, use it instead of opening, see L</SCHEMES>.
@@ -86,7 +109,7 @@ for the given scheme is defined, use it instead of opening, see L</SCHEMES>.
 If the page was already opened, it will not be loaded again, use 
 L</:Reload[!]> if you want to reload it.
 
-If [args] are given, they are appended to the {uri} as follows: The first 
+If [args] are given, they are appended to the [uri] as follows: The first 
 argument is appended as is. Each of the others is appended with a B<&> in 
 front if it contains a B<=>, and with a B<+> otherwise. This looks strange, 
 but it allows you to do stuff like
@@ -94,22 +117,33 @@ but it allows you to do stuff like
         :Browse www.google.com/search?q= foo bar sitesearch=www.sf.net
 
 and get the right thing. This concatenation happens after the expansion of 
-{uri}, so if you have, in the current address book, a bookmark 
+[uri], so if you have, in the current address book, a bookmark 
 B<googlesearch> with the above address, this is equivalent to
 
         :Browse ::googlesearch foo bar sitesearch=www.sf.net
 
 (but see also L</":Google[!] [words]"> for this particular example).
 
+If no [uri] is given, the default page will be opened. This is the page given 
+by the L</"g:browser_home_page"> variable, or, if not defined, by the 
+B<$HOMEPAGE> environment variable, by B<$HOME>, or if non of them is defined 
+defaults to B<http://vim.sf.net/>.
+
+Tip: If you want to use the last accessed page as the homepage, set 
+L</"g:browser_home_page"> to B<history://1>. See L</":History[!] [num]"> for 
+details.
+
 If the bang (B<!>) is added, the page will be opened in the sidebar. See 
-L</"The Sidebar"> for details.
+L</"The Sidebar"> for details. {startup}
 
-=item :BrowserSplit[!] {uri} [args]
+=item :BrowserSplit[!] [uri] [args]
 
-=item :SBrowse[!] {uri} [args]
+=item :SBrowse[!] [uri] [args]
 
-Same as L</":Browse[!] {uri} [args]">, but force splitting a new window, even 
+Same as L</":Browse[!] [uri] [args]">, but force splitting a new window, even 
 if an existing browser window exists. If B<!> is given, split vertically.
+
+=item <Plug>BrowserReload X<E<lt>PlugE<gt>BrowserReload>
 
 =item <C-R> X< browser-E<lt>C-RE<gt> >
 
@@ -123,6 +157,8 @@ will prompt the user whether to re-submit it. Pressing any key other than
 B<n> will resubmit the post. To avoid the question (giving a positive 
 answer), add B<!>.
 
+=item <Plug>BrowserFollow X<E<lt>PlugE<gt>BrowserFollow>
+
 =item CTRL-] X<browser-CTRL-]>
 
 =item g<LeftMouse> X< browser-gE<lt>LeftMouseE<gt> >
@@ -134,7 +170,7 @@ answer), add B<!>.
 =item :Follow
 
 Follow the link currently under the cursor. Obeys the same rules as 
-L</":Browse[!] {uri} [args]">. (In particular, the 
+L</":Browse[!] [uri] [args]">. (In particular, the 
 L</"Content-Type handling"> rules apply.)
 
 Naturally, this command will only work when the currently active window is a 
@@ -330,7 +366,7 @@ as follows:
 =back
 
 Once a handler is defined, it is used whenever a uri of this type is 
-requested (eg, in L</":Browse[!] {uri} [args]"> commands, when following a 
+requested (eg, in L</":Browse[!] [uri] [args]"> commands, when following a 
 link, etc.).  This is done after the uri expansion, so bookmarks whose target 
 is such a uri are affected as well.
 
@@ -347,7 +383,28 @@ standard schemes can be used as well. For example, setting
 
         let g:browser_help_command = 'help %a'
 
-will run B<help foo> when accessing a B<help://foo> uri.
+will run B<help foo> when accessing a B<help://foo> uri. Similar definitions 
+can be used, eg, for B<man://> uris, B<info://> (GNU info), and so on, 
+assuming you have the corresponding plugins to view such pages.
+
+Tip: In case you are wondering why would you want to use
+
+        :Browse man://ls
+
+instead of just
+
+        :Man ls
+
+note that these uris also work in links. So you may create, for instance, an 
+html listing of all man pages on your machine, and then just follow them to 
+open in it in the man plugin.
+
+Finally, two schemes have special meaning for the plugin: A uri of the form 
+B<history://n> will send you to the n-th newest page in the global history, 
+or to the history page itself, if n is omitted. A uri of the form 
+B<bookmark://foo> will get you the page for the bookmarks file B<foo>, or the 
+default one, if B<foo> is omitted. See L</":History[!] [num]"> and 
+L</":BookmarksPage[!] [file]">, respectively.
 
 =head1 Bookmarks
 
@@ -426,14 +483,14 @@ Delete the given alias from the current or given bookmark file.
 Change the current bookmark file to be the one given by {name}. {name} is the 
 name of a file in the directory specified by L</g:browser_addrbook_dir>, as 
 explained above. If the file does not exist, the command fails, unless B<!> 
-is given, in which case it is created.
+is given, in which case it is created. {startup}
 
 =item :BrowserListBookmarks [name]
 
 =item :ListBookmarks [name]
 
 List all bookmarks in the bookmark file specified by [name]. If [name] is 
-omitted, the current file is used.
+omitted, the current file is used. {startup}
 
 =item :BrowserBookmarksPage[!] [file]
 
@@ -444,7 +501,8 @@ as a browser page. This is equivalent to
 
         :Browse :file:
 
-If B<!> is given, open the page in the sidebar (see L</"The Sidebar">).
+If B<!> is given, open the page in the sidebar (see L</"The Sidebar">). 
+{startup}
 
 =back
 
@@ -464,6 +522,8 @@ the stack of locations visited so far in the current window. It is supposed
 to resemble the I<tags> mechanism.
 
 =over
+
+=item [N]<Plug>BrowserBack X<E<lt>PlugE<gt>BrowserBack>
 
 =item [N]CTRL-T X<browser-CTRL-T>
 
@@ -507,21 +567,28 @@ across sessions, in the file given by L</"g:browser_history_file">.
 
 =over
 
-=item :BrowserHistory[!]
+=item :BrowserHistory[!] [num]
 
-=item :History[!]
+=item :History[!] [num]
 
-Open the history page in the current browser window (or open a new one if no 
-such window exists). The same can be achieved by opening the B<history://> 
-uri. With B<!>, open the page in the sidebar (see L</"The Sidebar"> for 
-details).
+When [num] is not given, open the history page in the current browser window 
+(or open a new one if no such window exists). The same can be achieved by 
+opening the B<history://> uri. With B<!>, open the page in the sidebar (see 
+L</"The Sidebar"> for details).
+
+When [num] is given, go to the [num]-th newest page in the history. For 
+example,
+
+        :History 1
+
+goes to the most recently viewed page. {startup}
 
 =back
 
 The history page contains the previously visited locations as links. They are 
 grouped according to their site, and the groups are sorted according to 
-access time. The number of items in the history is given by 
-L</"g:browser_history_size">.
+access time. Below each link appears the last access time for this link. The 
+number of items in the history is given by L</"g:browser_history_size">.
 
 =head1 Forms
 
@@ -536,6 +603,8 @@ C<modifiable> option is off for browser pages, so to change the value of a an
 input, you need to use the L</":Follow"> command, or the following:
 
 =over
+
+=item <Plug>BrowserClick X<E<lt>PlugE<gt>BrowserClick>
 
 =item <CR> X< browser-E<lt>CRE<gt> >
 
@@ -593,6 +662,8 @@ There is a extra way to modify the values of B<radio> and B<option> inputs:
 
 =over
 
+=item [N]<Plug>BrowserNextChoice X<E<lt>PlugE<gt>BrowserNextChoice>
+
 =item [N]<C-N> X< browser-E<lt>C-NE<gt> >
 
 =item :[N]BrowserNextChoice
@@ -605,6 +676,8 @@ buttons, but not for options, the operation is cyclic: pressing <C-N> when
 the selected button is the last one will select the first one. Note that for 
 radio buttons, the cursor need not be on the selected button, but only on one 
 of the buttons from the same group.
+
+=item [N]<Plug>BrowserPrevChoice X<E<lt>PlugE<gt>BrowserPrevChoice>
 
 =item [N]<C-P> X< browser-E<lt>C-PE<gt> >
 
@@ -671,6 +744,8 @@ on the browser page, the following commands can be used to scroll the text:
 
 =over
 
+=item [N]<Plug>BrowserTextScrollUp X<E<lt>PlugE<gt>BrowserTextScrollUp>
+
 =item [N]<S-Down> X< browser-E<lt>C-DownE<gt> >
 
 =item :[N]BrowserTextScrollUp
@@ -680,6 +755,8 @@ on the browser page, the following commands can be used to scroll the text:
 Scroll the text in the text area up N lines. N defaults to 1. The command 
 only works while the cursor is on the text area. Note that scrolling the text 
 up moves the cursor down, so the mapping makes sense.
+
+=item [N]<Plug>BrowserTextScrollDown X<E<lt>PlugE<gt>BrowserTextScrollDown>
 
 =item [N]<S-Up> X< browser-E<lt>C-UpE<gt> >
 
@@ -745,7 +822,7 @@ page is involved, open it in the sidebar. The {command} becomes the
 identifier of the sidebar window: the next time B<:SideBar> is called with 
 the same {command}, the page will be opened in the same window. If no window 
 with this identifier exists in the sidebar, a new (horizontally split) window 
-is created in the sidebar.
+is created in the sidebar. {startup}
 
 =item :BrowserCloseSideBar
 
@@ -835,6 +912,8 @@ start with something like B<:Browse $HOME/foo.html>, run B<:ViewSource>, then
 edit the resulting buffer, running B<:Update> occasionally, and finally write 
 the source back to B<$HOME/foo.html>.
 
+=item [N]<Plug>BrowserNextLink X<E<lt>PlugE<gt>BrowserNextLink>
+
 =item [N]<Tab> X< browser-E<lt>TabE<gt> >
 
 =item :[N]BrowserNextLink
@@ -843,6 +922,8 @@ the source back to B<$HOME/foo.html>.
 
 Jump to the N-th next link, from the current cursor position. N defaults to 
 1. Works only in a browser window.
+
+=item [N]<Plug>BrowserPrevLink X<E<lt>PlugE<gt>BrowserPrevLink>
 
 =item [N]<S-Tab> X< browser-E<lt>S-TabE<gt> >
 
@@ -856,41 +937,86 @@ Same as L</:[N]NextLink>, but backwards.
 
 =head1 Mappings
 
-Unless mentioned otherwise, the key mappings are only available if the 
-F<ftplugin/browser/mappings.vim> file from the F<extra> directory is 
-installed. All mappings are local to browser windows, unless otherwise 
-mentioned. The following key mappings are available:
+The plugin defines "virtual" mappings, using the I<E<lt>PlugE<gt>> mechanism, 
+for some of the commands. These are always available. In addition, it defines 
+some default real keys to be mapped to these virtual ones. Unless mentioned 
+otherwise, these are only available if the F<ftplugin/browser/mappings.vim> 
+file from the F<extra> directory is installed. All mappings are local to 
+browser windows, unless otherwise mentioned.
+
+The mappings using a mechanism that provides a listing of the currently 
+available mappings, with a short description. This mechanism can be used by 
+the user to customize the mappings:
+
+=over
+
+=item <Plug>BrowserHelp X<E<lt>PlugE<gt>BrowserHelp>
+
+=item H X<browser-H>
+
+=item :BrowserHelp
+
+Show the list of currently available key mappings. This works only in a 
+browser window.
+
+=item :BrowserMap {lhs} {virtual|rhs [help]}
+
+This command can be used instead of the usual I<:map> command, to map the key 
+sequence {lhs}. The other argument can be one of two things: If it is a word 
+starting with an uppercase letter, say B<Foo>, it will be mapped to the 
+virtual key E<lt>PlugE<gt>BrowserFoo. All possible words are listed in 
+L</"mappings list">, below. For example:
+
+        BrowserMap <Tab> NextLink
+
+Otherwise, the next argument is used as a usual {rhs} in a I<:map> command. 
+The rest of the arguments are then used as the help line. For example:
+
+        BrowserMap q :q<CR> quit the browser window
+
+Note that the {rhs} can not contain whitespace in this case. Only normal mode 
+mappings can be defined in this way. See the defaults in 
+F<ftplugin/browser/mappings.vim> for the more examples.
+
+=back
+
+=head3 mappings list
+
+The following is a list of available key mappings. The first word is the 
+virtual map, as can be used with L</":BrowserMap {lhs} {virtual|rhs [help]}"> 
+The others are the default mappings.
 
 =over
 
 =item *
 
-<C-]>, g<LeftMouse>, <C-LeftMouse>: follow link or click form input under the 
-cursor (L</:BrowserFollow>)
+Follow, <C-]>, g<LeftMouse>, <C-LeftMouse>: follow link or click form input 
+under the cursor (L</:BrowserFollow>)
 
 =item *
 
-<C-T>, g<RightMouse>, <C-RightMouse>: go back in history (L</:[N]BrowserBack>)
+Back, <C-T>, g<RightMouse>, <C-RightMouse>: go back in window history 
+(L</:[N]BrowserBack>)
 
 =item *
 
-<C-R>: Reload the current page (L</:Reload[!]>)
+Reload, <C-R>: Reload the current page (L</:Reload[!]>)
 
 =item *
 
-<Tab>, <S-Tab>: next/previous link, also in insert mode 
+NextLink/PrevLink, <Tab>/<S-Tab>: next/previous link, also in insert mode 
 (L</:[N]BrowserNextLink>)
 
 =item *
 
-<C-N>, <C-P>: Rotate input value, for radio buttons and options 
-(L</:[N]BrowserNextChoice>)
+NextChoice/PrevChoice, <C-N>/<C-P>: Rotate input value, for radio buttons and 
+options (L</:[N]BrowserNextChoice>)
 
 =item *
 
-<CR>: Click form input, change value or submit (L</:BrowserClick>). In insert 
-mode (when editing a text input), <CR> will submit the form containing the 
-currently edited text input.
+Click, <CR>: Click form input, change value or submit (L</:BrowserClick>). In 
+insert mode (when editing a text input), <CR> will submit the form containing 
+the currently edited text input.
 
 =item *
 
@@ -921,8 +1047,8 @@ q: Close the browser window
 
 =item *
 
-<S-Up>, <S-Down>: scroll the text in a textarea input up and down 
-(L</"textareas">).
+TextScrollUp/TextScrollDown, <S-Up>/<S-Down>: scroll the text in a textarea 
+input up and down (L</"textareas">).
 
 =item *
 
@@ -930,6 +1056,11 @@ X< browser-\g > X< browser-E<lt>C-gE<gt> >
 In command line mode, <C-G> will insert the full uri of the current page. 
 <LocalLeader>g in normal mode maps to B<:Browse {uri}> where {uri} is the uri 
 of the current page.
+
+=item *
+
+Help, H: Show the list of current mappings, with a description 
+(L</":BrowserHelp">).
 
 =item *
 
@@ -956,7 +1087,7 @@ Key mappings available in the browser window. See L</Mappings> for details.
 
 Short version of commands. Contains the definitions of all commands that do 
 not start with the B<Browser> prefix, except for
-L</":Browse[!] {uri} [args]">, which is part of the main package. The loading 
+L</":Browse[!] [uri] [args]">, which is part of the main package. The loading 
 of this plugin can be avoided even if it is installed, by setting the 
 B<g:browser_short_version> variable.
 
@@ -983,15 +1114,16 @@ Search the vim site for an item of the given {type}, containing the given
 (B<colorscheme>, B<indent>, etc.), B<tip> for finding a tip, and B<script> to 
 find any script.
 
-The bang will open the search results in the sidebar (see L</"The Sidebar">).
+The bang will open the search results in the sidebar (see L</"The Sidebar">). 
+{startup}
 
 =item :VimScript {id}
 
-Open the page of the vim script with the given {id}
+Open the page of the vim script with the given {id}. {startup}
 
 =item :VimTip {id}
 
-Open the tip with the given {id}
+Open the tip with the given {id}. {startup}
 
 =back
 
@@ -1010,7 +1142,7 @@ cursor. For example,
 
         :SearchUsing google foo bar
 
-will search these words with google.
+will search these words with google. {startup}
 
 =item [{visual}]<C-S> X< browser-E<lt>C-SE<gt> >
 
@@ -1034,14 +1166,15 @@ in the F<vim.vim> plugin, etc.
 (If you have useful sites to put here, please send them to me!)
 
 <C-S> searches the word under the cursor, or the words selected in the visual 
-region, if used for {visual}.
+region, if used for {visual}. {startup}
 
 =item <C-K> X< browser-E<lt>C-KE<gt> >
 
 =item :Keyword[!] [word]
 
 Same as L</":Search[!] [words]">, but at only one word is allowed, and uses 
-L</"g:browser_keyword_search"> instead of L</"g:browser_search_engine">.
+L</"g:browser_keyword_search"> instead of L</"g:browser_search_engine">. 
+{startup}
 
 =item :Google[!] [words]
 
@@ -1050,7 +1183,7 @@ L</"g:browser_keyword_search"> instead of L</"g:browser_search_engine">.
 =item :Thesaurus[!] [words]
 
 Shortcuts for L</":SearchUsing[!] {facility} [words]">, with {facility} set 
-to google, dictionary or thesaurus, respectively.
+to google, dictionary or thesaurus, respectively. {startup}
 
 =back
 
@@ -1169,6 +1302,13 @@ make it more similar to other browsers, in the sense that the text width will
 be adjusted when changing the width of the vim window. The drawbacks are that 
 scrolling is less smooth, and performance is worse.
 
+=item g:browser_home_page
+
+Default: B<$HOMEPAGE>, B<$HOME> or B<http://vim.sf.net/>
+
+The page to use for L</":Browse[!] [uri] [args]"> and similar commands, when 
+no argument is given.
+
 =item g:browser_search_engine
 
 Default: B<google>
@@ -1187,7 +1327,9 @@ L</"Searching the web"> for details.
 
 Default: B<$EMAIL>
 
-The e-mail address to send in the GET request for web pages.
+The e-mail address to send in the GET request for web pages. Note: this 
+string is sent to the web server of the requested uri. For better privacy, 
+make this to empty.
 
 =item g:browser_cookies_file
 
@@ -1202,6 +1344,14 @@ Default: B<utf-8>
 
 The web page encoding to assume, if it can not be deduced from the page 
 headers.
+
+=item g:browser_connect_timeout
+
+Default: 120
+
+Time, in seconds, to wait when connecting to a server, until the browser 
+gives up. Since (for some reason) there is no way to interrupt the plugin 
+during the connection, it is advisable to keep it low.
 
 =item g:browser_verbosity_level
 
@@ -1222,11 +1372,60 @@ with scheme {scheme}. See L</"SCHEMES"> for details.
 
 =back
 
+=head1 Environment Variables
+
+The following environment variables may affect the operation of the plugin:
+
+=over
+
+=item $EMAIL X<browser-$EMAIL>
+
+Sent by the user agent as the B<From> header, in case 
+L</"g:browser_from_header"> is not defined.
+
+=item $HOMEPAGE X<browser-$HOMEPAGE>
+
+Default value for L</"g:browser_home_page">.
+
+=item $HOME X<browser-$HOME>
+
+Default value for L</"g:browser_home_page"> if B<$HOMEPAGE> is not defined. 
+Also used by various helper modules.
+
+=item $http_proxy X<browser-$http_proxy>
+
+=item $no_proxy X<browser-$no_proxy>
+
+Used by the B<LWP::UserAgent> perl module to determine what proxy to use for 
+each protocol, and which domains require no proxy. See the module 
+documentation for details.
+
+=item $COUNTRY X<browser-$COUNTRY>
+
+=item $URL_GUESS_PATTERN X<browser-$URL_GUESS_PATTERN>
+
+Not used directly by the plugin, but used by the B<URI::Heuristic> perl 
+module, to guess incomplete uris. See the module documentation for details.
+
+=item $TERM X<browser-$TERM>
+
+Used by the B<Mailcap> perl module. Determines the terminal program to run 
+when an entry with B<needsterminal> is used. Defaults to B<xterm>. See the 
+module documentation for details.
+
+=item $MAILCAPS X<browser-$MAILCAPS>
+
+Used by the B<Mailcap> perl module. Contains the list of mailcap files to use 
+(in addition, L</"g:browser_mailcap_file"> will be used).
+
+=back
+
 =head1 GLOSSARY
 
 Following is a list of all the commands provided by the plugin. See also 
-L</"Mappings"> for a list of all key mappings, and L</"Settings"> for a list 
-of all variables affecting the browser behaviour.
+L</"mappings list"> for a list of all key mappings, L</"Settings"> for a list 
+of all vim variables affecting the browser behaviour, and L</"Environment 
+Variables"> for relevant environment variables.
 
 =over
 
@@ -1257,7 +1456,7 @@ of all variables affecting the browser behaviour.
 
 =item *
 
-:Browse - open a location (L</":Browse[!] {uri} [args]">)
+:Browse - open a location (L</":Browse[!] [uri] [args]">)
 
 =item *
 
@@ -1278,6 +1477,14 @@ of all variables affecting the browser behaviour.
 
 =item *
 
+:BrowserHelp - show a list of all key mappings (L</":BrowserHelp">)
+
+=item *
+
+:BrowserInit - initialize the plugin (L</":BrowserInit">)
+
+=item *
+
 :BrowserTag, :Tag, :BrowserForward, :Forward - go forward in the window history 
 (L</":[N]Forward">)
 
@@ -1291,8 +1498,8 @@ of all variables affecting the browser behaviour.
 
 =item *
 
-:BrowserHistory, :History - open the global history as a browser page 
-(L</":History[!]">)
+:BrowserHistory, :History - open the global history as a browser page, or go 
+to a recently visited page (L</":History[!] [num]">)
 
 =item *
 
@@ -1315,6 +1522,11 @@ of all variables affecting the browser behaviour.
 
 :BrowserListBookmarks, :ListBookmarks - list all bookmarks in a given file 
 (L</":ListBookmarks [name]">)
+
+=item *
+
+:BrowserMap - define a key mapping for a browser window command 
+(L</"Mappings">)
 
 =item *
 
@@ -1348,7 +1560,7 @@ menu (L</":[N]PrevChoice">)
 =item *
 
 :BrowserSplit, :SBrowse - open a location in a new window 
-(L</":SBrowse[!] {uri} [args]">)
+(L</":SBrowse[!] [uri] [args]">)
 
 =item *
 
@@ -1418,7 +1630,7 @@ page (L</":ShowHeader">)
 
 =head1 VERSION
 
-Version 1.0. For vim version 6.3
+Version 1.1. For vim version 6.3
 
 =head1 AUTHOR
 

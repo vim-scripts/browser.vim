@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 # File Name: vimbrowse.pl
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: נובמבר 24, 2004
+# Last Update: Tue 15 Mar 2005 11:38:42 AM IST
 ###########################################################
 
 use warnings;
@@ -12,7 +12,7 @@ use Carp;
 
 BEGIN {
 
-    our $VERSION = 1.0;
+    our $VERSION = 1.1;
     sub broken { $^O eq 'MSWin32' } 
 
     #our $VIM = broken() ? 'vim' : '/usr/bin/vim';
@@ -81,14 +81,13 @@ if ( $remote ) {
     chomp($ServerName = $Instances[-1]);
 } else {
     $ExtraFirst = ' | bw 1';
-    unshift @ARGV, $HOMEPAGE unless @ARGV;
     if ( $gui ) {
         sys("$VIM --servername $SERVERNAME");
         ( $ServerName ) = grep { /^$SERVERNAME/o and not $Instances{$_} } 
             sys($SERVERLIST) until defined $ServerName;
         chomp $ServerName;
     } else {
-        chomp(my $first = shift);
+        chomp(my $first = shift || '');
         $VIM .= " --servername $SERVERNAME";
         $VIM .= " -c ${q}set $VimOpts$q" if $VimOpts;
         my $cmd = "$VIM -c $q$BrowseFirstCmd $first $ExtraFirst$q" . 
@@ -101,9 +100,7 @@ my $VimCmd = "$VIM --servername $ServerName --remote-send";
 
 sys("$VimCmd $q:set $VimOpts<CR>$q") if $VimOpts; 
 
-exit unless @ARGV;
-
-chomp(my $first = shift);
+chomp(my $first = shift || '');
 sys("$VimCmd $q:$BrowseFirstCmd $first $ExtraFirst<CR>$q");
 
 foreach ( @ARGV ) {
@@ -191,7 +188,8 @@ given, it will be opened as a uri, as described above. If several arguments
 are given,each uri will get its own (vim) window. If no argument is given and 
 B<--remote> is specified, the only (possible) effect is changing the size of 
 the existing vim browser window. If B<--remote> is not specified (or there is 
-no existing window), opens the uri in the I<$HOMEPAGE> environment variable.
+no existing window), opens a browser window as if the I<:Browse> command was 
+given with no arguments.
 
 If the program name start with F<gvimbrowse>, or the B<-g> or B<--gui> switch 
 is given, opens the gui vim version (gvim). Otherwise, uses the terminal 
@@ -211,19 +209,18 @@ Examples:
 
 =head1 ENVIRONMENT
 
-The following environment variables affect the operation of the script:
+The only variable used explicitly in the script is
 
 =over
-
-=item I<$HOMEPAGE>
-
-The page to open when no argument is given.
 
 =item I<$VIMBIN>
 
 The vim binary. By default, F<vim> is used.
 
 =back
+
+Several other variable affect the plugin behaviour, though, as described in 
+the help for the plugin.
 
 =head1 SEE ALSO
 

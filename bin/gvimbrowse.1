@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "VIMBROWSE 1"
-.TH VIMBROWSE 1 "2004-11-20" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH VIMBROWSE 1 "2005-03-15" "perl v5.8.6" "User Contributed Perl Documentation"
 .SH "NAME"
 vimbrowse, gvimbrowse \- use vim as a web browser from the command line
 .SH "SYNOPSIS"
@@ -193,7 +193,8 @@ given, it will be opened as a uri, as described above. If several arguments
 are given,each uri will get its own (vim) window. If no argument is given and 
 \&\fB\-\-remote\fR is specified, the only (possible) effect is changing the size of 
 the existing vim browser window. If \fB\-\-remote\fR is not specified (or there is 
-no existing window), opens the uri in the \fI$HOMEPAGE\fR environment variable.
+no existing window), opens a browser window as if the \fI:Browse\fR command was 
+given with no arguments.
 .PP
 If the program name start with \fIgvimbrowse\fR, or the \fB\-g\fR or \fB\-\-gui\fR switch 
 is given, opens the gui vim version (gvim). Otherwise, uses the terminal 
@@ -214,13 +215,13 @@ Examples:
 .Ve
 .SH "ENVIRONMENT"
 .IX Header "ENVIRONMENT"
-The following environment variables affect the operation of the script:
-.IP "\fI$HOMEPAGE\fR" 4
-.IX Item "$HOMEPAGE"
-The page to open when no argument is given.
+The only variable used explicitly in the script is
 .IP "\fI$VIMBIN\fR" 4
 .IX Item "$VIMBIN"
 The vim binary. By default, \fIvim\fR is used.
+.PP
+Several other variable affect the plugin behaviour, though, as described in 
+the help for the plugin.
 .SH "SEE ALSO"
 .IX Header "SEE ALSO"
 \&\fB\f(BIvim\fB\|(1)\fR, <http://vim.sf.net>

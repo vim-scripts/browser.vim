@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Modified: Mon 22 Nov 2004 09:16:16 AM IST
+# Last Modified: Tue 15 Mar 2005 11:27:17 AM IST
 ###########################################################
 package HTML::TreeBuilder::Encode;
 use HTML::TreeBuilder;
@@ -25,13 +25,12 @@ use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 1.0;
+    our $VERSION = 1.1;
 }
 
 # translation from attribute names (as in the perl modules and the vim 
 # variables) to html tag names. This also determines the possible values.  
-# Therefore, changes here should be reflected in the next table, in 
-# browser.pod, and in the syntax files
+# Therefore, changes here should be reflected in the syntax files
 our %Markup = qw(
     Bold       b
     Underline  u
@@ -58,15 +57,15 @@ sub formatSubtree {
         my $tag = $node->tag;
         my $func = "${tag}_start";
         $self->{'nextfragment'} = $node->attr('id') if $node->attr('id');
-        my $goon = $self->can($func) ? $self->$func($node) : 1;
+        my $goon = $self->can($func) ? (eval { $self->$func($node) } || $@) : 1;
         if ( $goon ) {
             $self->formatSubtree($_) foreach $node->content_list;
             $func = "${tag}_end";
-            $self->$func($node) if $self->can($func);
+            eval { $self->$func($node) } if $self->can($func);
         }
     } else {
         # got text
-        $self->textflow($node);
+        eval { $self->textflow($node) };
     }
 }
 
@@ -265,10 +264,12 @@ sub do_checkbox {
 sub input_start {
     my ($self, $node) = @_;
     my $type = lc($node->attr('type'));
+    $type = 'text' unless $type;
     my $form = $self->{'form'};
+    #return 1 unless $form;
     my $input = $form->find_input($node->attr('name'), $type);
     my ($line, $from, $to, $update, $target, $getVal, $setVal);
-    if ( not $type or $type eq 'text' ) {
+    if ( $type eq 'text' ) {
         my $value = $input->value;
         $self->out( "]> " );
         $line = $self->{'line'};
@@ -386,6 +387,7 @@ sub select_start {
         return 1;
     }
     my $form = $self->{'form'};
+    #return 1 unless $form;
     my $name = $node->attr('name');
     my $input = $form->find_input($name, 'option');
     my @values = map { decode($self->{'encoding'}, $_) } $input->value_names;
@@ -442,6 +444,7 @@ sub option_start {
     my ($self, $node) = @_;
     return 0 unless $self->{'multi'};
     my $form = $self->{'form'};
+    #return 1 unless $form;
     $self->vspace(0);
     my ($input, $line, $from, $to, $update, $getVal, $setVal) =
         $self->do_checkbox($node, $form, 'option');
@@ -469,6 +472,7 @@ sub option_end {
 sub textarea_start {
     my ($self, $node) = @_;
     my $form = $self->{'form'};
+    #return 1 unless $form;
     my $name = $node->attr('name');
     my $input = $form->find_input($name, 'textarea');
     my $lines = $node->attr('rows') || 10;
@@ -482,16 +486,16 @@ sub textarea_start {
     my $clines = $lines;
     foreach ( split /^/, $value ) {
         chomp;
-        Vim::debug("Adding $_ ($clines)");
+        Vim::debug("Adding $_ ($clines)", 3);
         $self->vspace(0);
         $self->pre_out($_);
-        Vim::debug('Line is now ' . $self->{'line'});
+        Vim::debug('Line is now ' . $self->{'line'}, 3);
         last unless --$clines;
     }
-    Vim::debug("Adding $clines empty lines");
+    Vim::debug("Adding $clines empty lines", 3);
     $self->vspace($clines);
     $self->out('}}} ' . ( '-' x ($width - 4 )));
-    Vim::debug('Line is now ' . $self->{'line'});
+    Vim::debug('Line is now ' . $self->{'line'}, 3);
     $getVal = sub { $input->value };
     $setVal = sub {
         my $page = shift;
@@ -521,6 +525,8 @@ sub textarea_start {
 }
 
 #### headers ####
+
+# shape of the underline for the i-th header
 my @line = qw(= - ^ + " .);
 
 for my $level ( 1..6 ) {
@@ -532,22 +538,28 @@ for my $level ( 1..6 ) {
 
 sub header_start {
     my($self, $level, $node) = @_;
+    no integer;
     $self->vspace(1 + (6-$level) * 0.4);
+    use integer;
     my $align = $node->attr('align') || '';
     $self->center_start if lc($align) eq 'center';
     push @{$self->{'nextmarkup'}}, {
         kind => "Header$level",
         start => 1,
+        sline => $self->{'line'},
     };
     1;
 }
 
 sub header_end {
     my ($self, $level, $node) = @_;
+
+    $self->pre_out('');
     push @{$self->{'markup'}[$self->{'line'}]}, {
         kind => "Header$level",
         start => 0,
         col => $self->{'curpos'} - 1,
+        line => $self->{'line'},
     };
     $self->vspace(0);
     $self->out($line[$level-1] x ($self->{'curpos'} - $self->{'lm'}));
@@ -566,22 +578,25 @@ for my $markup ( keys %Markup ) {
         push @{$self->{'nextmarkup'}}, {
             kind => $markup,
             start => 1,
+            sline => $self->{'line'},
         };
         1;
     };
     *$end = sub {
         my $self = shift;
-        $self->do_vspace;
+        $self->pre_out('');
         if ( $self->{'href'} or $self->{'selecttext'} ) {
             push @{$self->{'nextmarkup'}}, {
                 kind => $markup,
                 start => 0,
+                sline => $self->{'line'},
             };
         } else {
             push @{$self->{'markup'}[$self->{'line'}]}, {
                 kind => $markup,
                 start => 0,
                 col => $self->{'curpos'} - 1,
+                line => $self->{'line'},
             };
         }
         1;
@@ -591,12 +606,31 @@ for my $markup ( keys %Markup ) {
 sub cite_start {
     my $self = shift;
     $self->textflow('`');
+    push @{$self->{'nextmarkup'}}, {
+        kind => 'Cite',
+        start => 1,
+        sline => $self->{'line'},
+    };
     1;
 }
 
 sub cite_end {
     my $self = shift;
     $self->textflow("'");
+    if ( $self->{'href'} or $self->{'selecttext'} ) {
+        push @{$self->{'nextmarkup'}}, {
+            kind => 'Cite',
+            start => 0,
+            sline => $self->{'line'},
+        };
+    } else {
+        push @{$self->{'markup'}[$self->{'line'}]}, {
+            kind => 'Cite',
+            start => 0,
+            col => $self->{'curpos'} - 1,
+            line => $self->{'line'},
+        };
+    }
     1;
 }
 
@@ -852,7 +886,9 @@ sub dd_end {
 #########################################
 
 sub bullet {
-    shift->out(@_ ? shift() . ' ' : '');
+    my $self = shift;
+    $self->vspace(0);
+    $self->out(@_ ? shift() . ' ' : '');
 }
 
 sub vspace {
@@ -930,7 +966,10 @@ sub pre_out {
     my @lines = split /^/, shift;
 
     push @{$self->{'markup'}[$self->{'line'}]}, 
-        map { $_->{'col'} = $self->{'curpos'}; $_ } @{$self->{'nextmarkup'}};
+        map { $_->{'col'} = $self->{'curpos'}; 
+              $_->{'line'} = $self->{'line'};
+              $_ 
+          } @{$self->{'nextmarkup'}};
     $self->{'nextmarkup'} = [];
 
     foreach ( @lines ) {
@@ -950,6 +989,7 @@ sub pre_out {
 sub out {
     my $self = shift;
     my $text = shift;
+    return unless defined $text;
 
     if ($text =~ /^\s*$/) {
         $self->{hspace} = 1;
@@ -976,7 +1016,7 @@ sub out {
             # word fits on line; use a space
             $self->collect(' ');
             ++$self->{'curpos'};
-            Vim::debug("Added ' ', curpos is " . $self->{'curpos'}, 2);
+            Vim::debug("Added ' ', curpos is " . $self->{'curpos'}, 4);
         }
         $self->{'hspace'} = 0;
     }
@@ -984,12 +1024,14 @@ sub out {
     $self->collect($text);
     $self->{'prepos'} = $self->{'curpos'};
     $self->{'curpos'} += $len;
-    Vim::debug("Added '$text', curpos is " . $self->{'curpos'}, 2);
+    Vim::debug("Added '$text', curpos is " . $self->{'curpos'}, 4);
 
     push @{$self->{'markup'}[$self->{'line'}]}, map { 
         $_->{'col'} = $_->{'start'} ? $self->{'prepos'} 
-                                    : $self->{'curpos'} - 1; $_ 
-                                } @{$self->{'nextmarkup'}};
+                                    : $self->{'curpos'} - 1;
+        $_->{'line'} = $self->{'line'};
+        $_ 
+    } @{$self->{'nextmarkup'}};
     $self->{'nextmarkup'} = [];
 
     1;

@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Modified: Mon 22 Nov 2004 08:28:04 PM IST
+" Last Modified: Tue 15 Mar 2005 11:24:33 AM IST
 " Description: syntax for a browser buffer. part of the browser plugin
-" Version: 1.0
+" Version: 1.1
 "
 
 if version < 600
@@ -11,7 +11,7 @@ elseif exists("b:current_syntax")
   finish
 endif
 
-SynMarkDef Link display oneline contains=TOP keepend
+SynMarkDef Link display oneline contains=TOP,Cite keepend
 SynMarkDef FollowedLink display oneline contains=TOP keepend
 SynMarkDef Form matchgroup=browserInputBoundary oneline display keepend
 SynMarkDef Image oneline display keepend
@@ -25,6 +25,7 @@ SynMarkDef Code contains=TOP keepend
 SynMarkDef Kbd contains=TOP keepend
 SynMarkDef Samp contains=TOP keepend
 SynMarkDef Var contains=TOP keepend
+SynMarkDef Cite contains=TOP keepend
 SynMarkDef Definition contains=TOP keepend
 SynMarkDef Header1 contains=TOP keepend display 
       \nextgroup=browserHeaderUL skipnl skipwhite
@@ -47,7 +48,6 @@ syntax match browserHeaderUL /^\s*^^^^*\s*$/ display contained
 syntax match browserHeaderUL /^\s*++++*\s*$/ display contained
 syntax match browserHeaderUL /^\s*""""*\s*$/ display contained
 syntax match browserHeaderUL /^\s*\.\.\.\.*\s*$/ display contained
-syntax region browserCite start=/`/ end=/'/ display contains=TOP
 
 " The head
 syntax region browserHead matchgroup=browserHeadTitle 
@@ -82,7 +82,6 @@ if version >= 508 || !exists("did_c_syn_inits")
   SynMarkLink Header6 StorageClass
   HiLink browserHeaderUL PreProc
   HiLink browserIgnore Ignore
-  HiLink browserCite Constant
   HiLink browserPre Identifier
   HiLink browserHeadTitle Title
   HiLink browserHeadKey Type
@@ -109,6 +108,7 @@ if version >= 508 || !exists("did_c_syn_inits")
   SynMarkHighlight Samp term=inverse cterm=inverse gui=inverse
   SynMarkLink Var Repeat
   SynMarkLink Definition Define
+  SynMarkLink Cite Constant
 
   delcommand HiLink
 endif
