@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 26, 2004
+" Last Modified: Mon 22 Nov 2004 08:28:04 PM IST
 " Description: syntax for a browser buffer. part of the browser plugin
-" Version: 0.4
+" Version: 1.0
 "
 
 if version < 600
@@ -11,50 +11,54 @@ elseif exists("b:current_syntax")
   finish
 endif
 
+SynMarkDef Link display oneline contains=TOP keepend
+SynMarkDef FollowedLink display oneline contains=TOP keepend
+SynMarkDef Form matchgroup=browserInputBoundary oneline display keepend
+SynMarkDef Image oneline display keepend
+SynMarkDef Bold contains=TOP keepend
+SynMarkDef Underline contains=TOP keepend
+SynMarkDef Italic contains=TOP keepend
+SynMarkDef Teletype contains=TOP keepend
+SynMarkDef Strong contains=TOP keepend
+SynMarkDef Em contains=TOP keepend
+SynMarkDef Code contains=TOP keepend
+SynMarkDef Kbd contains=TOP keepend
+SynMarkDef Samp contains=TOP keepend
+SynMarkDef Var contains=TOP keepend
+SynMarkDef Definition contains=TOP keepend
+SynMarkDef Header1 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
+SynMarkDef Header2 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
+SynMarkDef Header3 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
+SynMarkDef Header4 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
+SynMarkDef Header5 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
+SynMarkDef Header6 contains=TOP keepend display 
+      \nextgroup=browserHeaderUL skipnl skipwhite
 
-if has('conceal')
-  syntax region browserLink matchgroup=browserIgnore start=/<</ end=/>>/ 
-        \display oneline concealends contains=TOP
-  syntax region browserPre matchgroup=browserIgnore start=/\~>$/ end=/^<\~\s*$/ 
-        \concealends contains=TOP keepend
-else
-  syntax region browserLink matchgroup=browserIgnore start=/<</ end=/>>/ 
-        \display oneline contains=TOP
-  syntax region browserPre matchgroup=browserIgnore start=/\~>$/ end=/^<\~\s*$/ 
-        \contains=TOP keepend
-endif
-syntax match browserHeader1 /^.*\_$\(\n\s*====*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeader2 /^.*\_$\(\n\s*----*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeader3 /^.*\_$\(\n\s*^^^^*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeader4 /^.*\_$\(\n\s*++++*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeader5 /^.*\_$\(\n\s*""""*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeader6 /^.*\_$\(\n\s*\.\.\.\.*\s*\_$\)\@=/ display 
-      \contains=TOP
-syntax match browserHeaderUL /^\s*====*\s*$/ display
-syntax match browserHeaderUL /^\s*----*\s*$/ display
-syntax match browserHeaderUL /^\s*^^^^*\s*$/ display
-syntax match browserHeaderUL /^\s*++++*\s*$/ display
-syntax match browserHeaderUL /^\s*""""*\s*$/ display
-syntax match browserHeaderUL /^\s*\.\.\.\.*\s*$/ display
+syntax region browserPre matchgroup=browserIgnore start=/\~>$/ end=/^<\~\s*$/ 
+      \contains=TOP keepend
+syntax match browserHeaderUL /^\s*====*\s*$/ display contained
+syntax match browserHeaderUL /^\s*----*\s*$/ display contained
+syntax match browserHeaderUL /^\s*^^^^*\s*$/ display contained
+syntax match browserHeaderUL /^\s*++++*\s*$/ display contained
+syntax match browserHeaderUL /^\s*""""*\s*$/ display contained
+syntax match browserHeaderUL /^\s*\.\.\.\.*\s*$/ display contained
 syntax region browserCite start=/`/ end=/'/ display contains=TOP
-syntax match browserImage /{[^}]\+}/ display
 
 " The head
 syntax region browserHead matchgroup=browserHeadTitle 
-      \start=/^.*{{{\%1l$/ end=/^}}}$/ contains=browserHeadField keepend
+      \start=/^Document header:.*{{{$/ end=/^}}}$/ 
+      \contains=browserHeadField keepend
 syntax region browserHeadField matchgroup=browserHeadKey 
       \start=/^  [^:]*:/ end=/$/ oneline display contained
 
 " Forms
 syntax region browserTextField matchgroup=browserTFstart 
       \start=+\]>+ end=+$+ oneline display
-syntax region browserOption matchgroup=browserInputBoundary 
-      \start=+\[+ end=+\]+ oneline display keepend
 syntax match browserRadioSelected /(\*)/hs=s+1,he=e-1 display
 syntax region browserTextArea matchgroup=browserTABorder 
       \start=/^ *--- Click to edit the text area ----* {{{$/ 
@@ -70,37 +74,14 @@ if version >= 508 || !exists("did_c_syn_inits")
     command -nargs=+ HiLink hi def link <args>
   endif
 
-  " generation of syntax definition dynamically, based on g:browser_{attr}_* 
-  " variables
-  if has('conceal')
-    let s:conceal=' concealends'
-  else
-    let s:conceal=''
-  endif
-  
-  function BrowserDefSyntax(Tag)
-    let Tag=a:Tag
-    if exists('g:browser_' . Tag . '_start') && g:browser_{Tag}_start != ''
-      let start = escape(g:browser_{Tag}_start, '.*%')
-      let end = escape(g:browser_{Tag}_end, '.*%')
-      execute 
-        \'syn region browser_' . Tag . ' matchgroup=browserIgnore start=%' . 
-        \start . '% end=%' . end . '% contains=TOP keepend' s:conceal
-      if exists('g:browser_' . Tag . '_highlight')
-        execute 'hi! link browser_' . Tag . ' ' . g:browser_{Tag}_highlight
-      endif
-    endif
-  endfunction
-  
-  HiLink browserHeader1 DiffChange
-  HiLink browserHeader2 DiffAdd
-  HiLink browserHeader3 DiffDelete
-  HiLink browserHeader4 DiffText
-  HiLink browserHeader5 Exception
-  HiLink browserHeader6 StorageClass
+  SynMarkLink Header1 DiffChange
+  SynMarkLink Header2 DiffAdd
+  SynMarkLink Header3 DiffDelete
+  SynMarkLink Header4 DiffText
+  SynMarkLink Header5 Exception
+  SynMarkLink Header6 StorageClass
   HiLink browserHeaderUL PreProc
   HiLink browserIgnore Ignore
-  HiLink browserLink Underlined
   HiLink browserCite Constant
   HiLink browserPre Identifier
   HiLink browserHeadTitle Title
@@ -110,27 +91,25 @@ if version >= 508 || !exists("did_c_syn_inits")
   HiLink browserTFstart Folded
   HiLink browserTAborder Folded
   HiLink browserTextArea Repeat
-  HiLink browserOption Label
-  HiLink browserInputBoundary Delimiter
   HiLink browserRadioSelected Label
-  HiLink browserImage Special
+  HiLink browserInputBoundary Delimiter
 
-  runtime syntax/browser_highlight.vim
+  SynMarkLink Link Underlined
+  SynMarkLink FollowedLink LineNr
+  SynMarkLink Form Label
+  SynMarkLink Image Special
+  SynMarkHighlight Bold term=bold cterm=bold gui=bold
+  SynMarkHighlight Underline term=underline cterm=underline gui=underline
+  SynMarkHighlight Italic term=italic cterm=italic gui=italic
+  SynMarkLink Teletype Special
+  SynMarkHighlight Strong term=standout cterm=standout gui=standout
+  SynMarkHighlight Em term=bold,italic cterm=bold,italic gui=bold,italic
+  SynMarkLink Code Identifier
+  SynMarkLink Kbd Operator
+  SynMarkHighlight Samp term=inverse cterm=inverse gui=inverse
+  SynMarkLink Var Repeat
+  SynMarkLink Definition Define
 
-  call BrowserDefSyntax('bold')
-  call BrowserDefSyntax('italic')
-  call BrowserDefSyntax('underline')
-  call BrowserDefSyntax('teletype')
-  call BrowserDefSyntax('strong')
-  call BrowserDefSyntax('em')
-  call BrowserDefSyntax('code')
-  call BrowserDefSyntax('kbd')
-  call BrowserDefSyntax('samp')
-  call BrowserDefSyntax('var')
-  call BrowserDefSyntax('definition')
-
-  delfunction BrowserDefSyntax
-  
   delcommand HiLink
 endif
 

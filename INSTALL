@@ -9,9 +9,17 @@ URI from cpan are required.  One way to install these modules is by running:
 
     cpan LWP::UserAgent
 
-etc. Most linux distribution provide their own way of installing perl 
-modules. The corresponding packages should be named something like 
-HTML-Tree, libwww-perl and URI.
+etc. Most distribution provide their own way of installing perl modules. The 
+corresponding packages should be named something like HTML-Tree, libwww-perl 
+and URI.
+
+In addition, the vim plugin synmark.vim is required. This is vim script 1128, 
+available at:
+
+  http://vim.sf.net/scripts/script.php?script_id=1128
+
+Its installation is standard. I believe that if you use GetLatestVimScripts 
+(vim script 642), it should be installed automatically, but this is untested.
 
 The plugin was tested on linux, with vim 6.3 and perl 5.8.4.
 
@@ -67,8 +75,13 @@ or
 
 to view it. The same is available also in the man page, vimbrowse.1. To 
 install it, just copy the script to any directory on your $PATH (make sure 
-that permissions are ok). To install the man page, put it in the 'man1' sub 
+that permissions are ok). To install the man pages, put it in the 'man1' sub 
 directory of a directory in your $MANPATH.
+
+If the script is installed as gvimbrowse (or gvimbrowse.pl), gvim will be 
+launched. Otherwise, terminal vim will be used. This behavior can also be 
+altered using the --gui switch. Accordingly, there are two man pages, 
+vimbrowse.1 and gvimbrowse.1, which are identical.
 
 That's it!
 

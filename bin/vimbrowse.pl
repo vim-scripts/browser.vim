@@ -1,47 +1,48 @@
 #!/usr/bin/env perl
 # File Name: vimbrowse.pl
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 26, 2004
+# Last Update: נובמבר 24, 2004
 ###########################################################
 
 use warnings;
 use integer;
 use File::Basename;
 use File::Spec::Functions;
+use Carp;
 
 BEGIN {
 
-    our $VERSION = 0.4;
+    our $VERSION = 1.0;
     sub broken { $^O eq 'MSWin32' } 
 
-    # Don't know where to look for gvim on windows - let's try the PATH
-    our $VIM = broken() ? 'gvim' : '/usr/bin/gvim';
+    #our $VIM = broken() ? 'vim' : '/usr/bin/vim';
+    our $VIM = 'vim';
     $VIM = $ENV{'VIMBIN'} if $ENV{'VIMBIN'};
-    # for some reason, gvim on windows doesn't like stdout, so we use vim 
-    # instead of gvim to get the serverlist, which we assume to be in the 
-    # same directory as gvim
-    my $vimdir = dirname($VIM);
-    my @vimpath = qw(vim);
-    unshift @vimpath, $vimdir unless $vimdir eq curdir;
-    our $SERVERLIST = catfile(@vimpath) . ' --serverlist';
-    $VIM = 'start ' . $VIM if broken();
+    our $SERVERLIST = "$VIM --serverlist";
     our $HOMEPAGE = $ENV{'HOMEPAGE'} || 'http://vim.sf.net/';
     our $SERVERNAME = 'VIMBROWSER';
 
     # analyze command line
-    use Getopt::Long qw(:config gnu_getopt auto_version auto_help);
+    use Getopt::Long qw(:config gnu_getopt);
     use Pod::Usage;
 
     our $remote = '';
     our $vertical = 0;
     our $width = 0;
     our $height = 0;
+    our $gui = ($0 =~ /gvimbrowse(\..*)?$/o);
     GetOptions(
         'remote=s' => \$remote,
         'columns|width=i' => \$width,
         'lines|height=i' => \$height,
         'vertical' => \$vertical,
-        man => sub { pod2usage(-verbose => 2) });
+        'gui|g!' => \$gui,
+        man => sub { pod2usage(-verbose => 2) },
+        help => sub { pod2usage(-verbose => 1) },
+        version => sub { print basename($0) . " version $VERSION\n"; exit 0 },
+    );
+    $VIM = 'start ' . $VIM if ($gui and broken());
+    $VIM =~ s/(vim(\..*)?)$/g$1/o if $gui;
 }
 
 sub sys {
@@ -72,31 +73,42 @@ $remote = '' unless @Instances;
 my %Instances;
 @Instances{@Instances} = @Instances;
 
+# windows doesn't like single quotes. *sigh*
+my $q = broken() ? '"' : "'";
 my $ServerName;
 my $ExtraFirst = '';
 if ( $remote ) {
-    $ServerName = $SERVERNAME;
+    chomp($ServerName = $Instances[-1]);
 } else {
-    unshift @ARGV, $HOMEPAGE unless @ARGV;
-    sys("$VIM --servername $SERVERNAME");
-    ( $ServerName ) = grep { /^$SERVERNAME/o and not $Instances{$_} } 
-        sys($SERVERLIST) until defined $ServerName;
-    chomp $ServerName;
     $ExtraFirst = ' | bw 1';
+    unshift @ARGV, $HOMEPAGE unless @ARGV;
+    if ( $gui ) {
+        sys("$VIM --servername $SERVERNAME");
+        ( $ServerName ) = grep { /^$SERVERNAME/o and not $Instances{$_} } 
+            sys($SERVERLIST) until defined $ServerName;
+        chomp $ServerName;
+    } else {
+        chomp(my $first = shift);
+        $VIM .= " --servername $SERVERNAME";
+        $VIM .= " -c ${q}set $VimOpts$q" if $VimOpts;
+        my $cmd = "$VIM -c $q$BrowseFirstCmd $first $ExtraFirst$q" . 
+                  join('', map { chomp;" -c $q$SplitCmd $_$q" } @ARGV);
+        exec $cmd;
+    }
 }
 
 my $VimCmd = "$VIM --servername $ServerName --remote-send";
 
-# windows doesn't like single quotes. *sigh*
-my $q = broken() ? '"' : "'";
 sys("$VimCmd $q:set $VimOpts<CR>$q") if $VimOpts; 
 
 exit unless @ARGV;
 
-sys("$VimCmd $q:$BrowseFirstCmd " . shift(@ARGV) . "$ExtraFirst<CR>$q");
+chomp(my $first = shift);
+sys("$VimCmd $q:$BrowseFirstCmd $first $ExtraFirst<CR>$q");
 
 foreach ( @ARGV ) {
     sleep 1;
+    chomp;
     sys("$VimCmd $q:$SplitCmd $_<CR>$q");
 }
 
@@ -106,18 +118,24 @@ __DATA__
 
 =head1 NAME
 
-vimbrowse.pl - use vim as a web browser from the command line
+vimbrowse, gvimbrowse - use vim as a web browser from the command line
 
 =head1 SYNOPSIS
 
-B<vimbrowse.pl> B<--help>|B<--man>|B<--version>
+B<vimbrowse> B<--help>|B<--man>|B<--version>
 
-B<vimbrowse.pl> [B<--(width|columns)=>I<num>] [B<--(height|lines)=>I<num>] 
-[B<--remote={split,replace}>] [B<--vertical>] [I<uri1> I<uri2> ...]
+B<vimbrowse> [B<--gui>|B<-g>] [B<--(width|columns)=>I<num>] 
+[B<--(height|lines)=>I<num>] [B<--remote={split,replace}>] [B<--vertical>] 
+[I<uri1> I<uri2> ...]
 
 =head1 OPTIONS
 
 =over 4
+
+=item B<--gui>, B<-g>
+
+Run the gui vim (gvim) rather than the terminal based one. The same effect is 
+acheived if the script name starts with B<gvimbrowse>.
 
 =item B<--width=>I<num>
 
@@ -167,24 +185,28 @@ argument of the B<:Browse> command of the browser plugin.
 
 =head1 DESCRIPTION
 
-This script invokes C<vim(1)> in a web browser mode. It requires the browser 
-plugin. If an argument is given, it will be opened as a uri, as described 
-above. If several arguments are given, each uri will get its own (vim) 
-window. If no argument is given and B<--remote> is specified, the only 
-(possible) effect is changing the size of the existing vim browser window. If 
-B<--remote> is not specified (or there is no existing window), opens the uri 
-in I<$HOMEPAGE>.
+This script invokes C<vim(1)> in a web browser mode. It requires the 
+B<browser> plugin, and vim compiled with I<+clientserver>. If an argument is 
+given, it will be opened as a uri, as described above. If several arguments 
+are given,each uri will get its own (vim) window. If no argument is given and 
+B<--remote> is specified, the only (possible) effect is changing the size of 
+the existing vim browser window. If B<--remote> is not specified (or there is 
+no existing window), opens the uri in the I<$HOMEPAGE> environment variable.
+
+If the program name start with F<gvimbrowse>, or the B<-g> or B<--gui> switch 
+is given, opens the gui vim version (gvim). Otherwise, uses the terminal 
+version.
 
 Examples:
 
-    vimbrowse.pl        # open the home page in a new vim
-    vimbrowse.pl --remote=split --vertical www.gnu.org
+    gvimbrowse        # open the home page in a new vim
+    gvimbrowse --remote=split --vertical www.gnu.org
                         # open the gnu homepage in the same vim,
                         # in a new window split vertically
-    vimbrowse.pl --remote=replace www.google.com vim.sf.net
+    gvimbrowse --remote=replace www.google.com vim.sf.net
                         # replace that page by google search, and
                         # add also the vim page, spliting horizontally
-    vimbrowse.pl --remote=s --width=120
+    gvimbrowse --remote=s --width=120
                         # change the width of the browser
 
 =head1 ENVIRONMENT
@@ -199,7 +221,7 @@ The page to open when no argument is given.
 
 =item I<$VIMBIN>
 
-The full path of the gvim binary. By default, F</usr/bin/gvim> is used.
+The vim binary. By default, F<vim> is used.
 
 =back
 

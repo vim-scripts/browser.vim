@@ -1,3 +1,45 @@
+* Version 1.0 (Sat 20 Nov 2004 10:55:30 PM IST)
+
+Main Improvements:
+	- Added a sidebar
+	- The bookmarks can now be opened as browser pages
+	- Added menu support (context menus and the toolbar)
+	- Added support for opening content with external applications, 
+	  through mailcap files
+	- Added global history, viewable as a browser page
+	- Modifications made to the page source are now reflected in the page
+	- Added more commands for inline image handling
+	- Scheme handlers can now be vim commands, as well as external 
+	  programs.
+	- Reviewed documentation, added a glossary
+
+Main code changes
+	- The conceal patch is no longer used. The browser depends on another 
+	  plugin, synmark.vim, instead.
+	- Added the Mailcap.pm perl module, to interface mailcap files, for 
+	  running external application for content types not supported 
+	  internally. Also added corresponding functions to Vim.pm
+	- File related dialogs are now implemented using the browse() vim 
+	  function.
+	- vimbrowse.pl now opens vim in a terminal, rather than the gui one, 
+	  unless called as 'gvimbrowse' or with the "--gui" option.
+
+Other changes:
+	- Added option to not break lines, so that the text width changes when 
+	  resizing the vim window.
+	- Added mapping for browsing based on the current uri
+	- Frames are now (partially) supported
+	- <CR> in text inputs in a form will submit that form.
+	- Deal with compressed content, according to the content encoding.
+	- The B<id> attribute of any html element can be used as a fragment
+	- Added the possibility to add a bookmark of a page to any bookmarks 
+	  file, without changing the default one.
+	- Initial comments in a bookmarks file are now preserved.
+	- Followed links now appear with a different highlighting
+	- Added option to prevent the plugin from giving any messages.
+	- The headers displayed by the :ShowHeader command are now displayed 
+	  at the bottom of the page, rather than the top.
+
 * Version 0.4
 
 Main Improvements:
@@ -94,3 +136,5 @@ Incompatible changes:
 * Version 0.1
 
 	Initial Version
+
+vim: comments=f\:- :

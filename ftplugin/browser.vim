@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 26, 2004
+" Last Modified: Mon 22 Nov 2004 08:02:28 AM IST
 " Description: settings for a browser buffer. part of the browser plugin
-" Version: 0.4
+" Version: 1.0
 
 " make sure the browser buffers are not associated with any files
 setlocal buftype=nofile
@@ -15,10 +15,6 @@ setlocal foldmethod=marker
 " we don't get any extra lines there
 setlocal formatoptions=
 
-setlocal linebreak
-if has('conceal')
-  setlocal conceallevel=2
-endif
 if g:browser_page_modifiable
   if maparg('<Esc>', 'i')
     iunmap <Esc>
@@ -27,5 +23,9 @@ else
   setlocal nomodifiable
   inoremap <buffer> <silent> <Esc> <Esc>:setlocal nomodifiable<CR>
 endif
-let &winheight=&helpheight
+
+setlocal linebreak
+if strlen(g:browser_sidebar) > 1
+  setlocal nowrap
+endif
 

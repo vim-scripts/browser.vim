@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 26, 2004
+# Last Modified: Mon 22 Nov 2004 09:16:16 AM IST
 ###########################################################
 package HTML::TreeBuilder::Encode;
 use HTML::TreeBuilder;
@@ -14,18 +14,18 @@ sub text {
 }
 
 package HTML::FormatText::Vim;
-# for some reason, 'use base' doesn't fail when the base cannot be loaded, so
-# we 'use' it explicilty
 use Data::Dumper;
 use URI;
 use Vim;
 use Encode;
+use Math::BigInt;
+sub INF { Math::BigInt->binf() }
 
 use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.4;
+    our $VERSION = 1.0;
 }
 
 # translation from attribute names (as in the perl modules and the vim 
@@ -33,28 +33,17 @@ BEGIN {
 # Therefore, changes here should be reflected in the next table, in 
 # browser.pod, and in the syntax files
 our %Markup = qw(
-    bold       b
-    underline  u
-    italic     i 
-    teletype   tt
-    strong     strong
-    em         em
-    code       code
-    kbd        kbd
-    samp       samp
-    var        var
-    definition dfn
-);
-
-# fallback style, in case special markup is not defined for this style
-our %Fallback = qw(
-    strong     b
-    em         i
-    code       tt
-    kbd        tt
-    samp       tt
-    var        tt
-    dfn        u
+    Bold       b
+    Underline  u
+    Italic     i 
+    Teletype   tt
+    Strong     strong
+    Em         em
+    Code       code
+    Kbd        kbd
+    Samp       samp
+    Var        var
+    Definition dfn
 );
 
 sub new {
@@ -68,6 +57,7 @@ sub formatSubtree {
     if ( ref $node ) {
         my $tag = $node->tag;
         my $func = "${tag}_start";
+        $self->{'nextfragment'} = $node->attr('id') if $node->attr('id');
         my $goon = $self->can($func) ? $self->$func($node) : 1;
         if ( $goon ) {
             $self->formatSubtree($_) foreach $node->content_list;
@@ -85,6 +75,9 @@ sub format_string {
     my $tree = new HTML::TreeBuilder::Encode;
     $tree->parse(shift);
     $tree->eof();
+
+    # $tree->dump if $Vim::Option{'verbose'};
+
     $tree->simplify_pres();
     $tree->number_lists();
     $self->begin();
@@ -96,7 +89,6 @@ sub format_string {
 sub begin {
     my $self = shift;
     $self->{'curpos'} = 0;  # current output position.
-    $self->{'actpos'} = 0;
     $self->{'line'} = 0; # current line number
     $self->{'hspace'} = 0;  # horizontal space pending flag
     $self->{'vspace'} = -1;
@@ -105,6 +97,8 @@ sub begin {
     $self->{'pre'} = 0;
     $self->{'links'} = [];
     $self->{'images'} = [];
+    $self->{'markup'} = [];
+    $self->{'nextmarkup'} = [];
     $self->{'fragment'} = {};
 }
 
@@ -113,19 +107,35 @@ sub begin {
 ###############################################
 
 # completely ignored elements (all contents is ignored)
-for my $element ( qw(head script style frameset del) ) {
+for my $element ( qw(head script style del) ) {
     my $func = "${element}_start";
     *$func = sub { 0; };
 }
 
 #### links and anchors ####
+
+sub add_link {
+    my ($self, $target, $text) = @_;
+    $target = new URI $target;
+    my $relative = not defined $target->scheme();
+    $target = $target->abs($self->{'base'});
+    $text =~ tr/\n/ /;
+    $self->out($text);
+    push @{$self->{'links'}[$self->{'line'}]}, {
+        target => $target->as_string,
+        text => $text,
+        from => $self->{'prepos'},
+        to => $self->{'curpos'} - 1,
+        sidebar => $relative,
+    };
+    1;
+}
+
 sub a_start {
     my $self = shift;
     my $node = $_[0];
     $self->{'lasttext'} = '';
-    if ($node->attr('href')) {
-        $self->{'href'} = URI->new_abs($node->attr('href'), $self->{'base'});
-    };
+    $self->{'href'} = $node->attr('href');
     1;
 }
 
@@ -133,30 +143,17 @@ sub a_end {
     my $self = shift;
     my $node = $_[0];
     my $text = delete $self->{'lasttext'};
-    if (exists $self->{'href'}) {
-        $self->out("<<$text>>");
-        $self->fixCurPos(4);
-        my $hoffset = $self->{'fixpos'} ? 0 : 2;
-        push @{$self->{'links'}[$self->{'line'}]}, {
-            target => $self->{'href'}->as_string,
-            text => $text,
-            from => $self->{'prepos'} + $hoffset,
-            to => $self->{'curpos'} - $hoffset - 1,
-        };
+    if (my $target = delete $self->{'href'}) {
+        $self->add_link($target, $text);
         if ( my $imgdata = delete $self->{'image'} ) {
-            $imgdata->{'from'} = $self->{'prepos'} + $hoffset;
-            $imgdata->{'to'} = $self->{'curpos'} - $hoffset - 1;
+            $imgdata->{'from'} = $self->{'prepos'};
+            $imgdata->{'to'} = $self->{'curpos'} - 1;
             push @{$self->{'images'}[$self->{'line'}]}, $imgdata;
         }
-        delete $self->{'href'};
     } else {
         $self->out($text);
     }
-    if ($node->attr('name')) {
-        # got a fragment, update the fragments list
-        # for some reason we need to add 3 (TODO)
-        $self->{'fragment'}{$node->attr('name')} = $self->{'line'} + 3;
-    }
+    $self->{'nextfragment'} = $node->attr('name') if $node->attr('name');
     1;
 }
 
@@ -180,6 +177,38 @@ sub img_start {
         $imgdata->{'to'} = $self->{'curpos'} - 2;
         push @{$self->{'images'}[$self->{'line'}]}, $imgdata;
     }
+    1;
+}
+
+#### frames ####
+sub frame_start {
+    my ($self, $node) = @_;
+    $self->out(('  ' x $self->{'framelevel'}) . 'FRAME: ');
+    $self->add_link($node->attr('src'), ( $node->attr('name') || '[open]'));
+    $self->vspace(0);
+    1;
+}
+
+sub noframes_start {
+    shift->hr_start();
+    1;
+}
+
+sub frameset_start {
+    my ($self, $node) = @_;
+    if ( exists $self->{'framelevel'} ) {
+        $self->{'framelevel'}++;
+    } else {
+        $self->{'framelevel'} = 0;
+    }
+    $self->vspace(1);
+    1;
+}
+
+sub frameset_end {
+    my $self = shift;
+    $self->{'framelevel'}--;
+    $self->vspace(1);
     1;
 }
 
@@ -217,15 +246,14 @@ sub do_checkbox {
         (($node->attr('checked') or $node->attr('selected')) ? 'X' : ' ') . 
                 ']' );
     $from = $to = $self->{'curpos'} - 2;
-    my $afrom = $self->{'actpos'} - 2;
     $line = $self->{'line'};
     $getVal = sub {
-        substr(shift->getLine($line), $afrom, 1)
+        substr(shift->getLine($line), $from, 1)
     };
     $setVal = sub {
         my $page = shift;
         my $text = $page->getLine($line);
-        substr($text, $afrom, 1) = shift;
+        substr($text, $from, 1) = shift;
         $page->setLine($line, $text);
     };
     $update = sub {
@@ -236,20 +264,20 @@ sub do_checkbox {
 
 sub input_start {
     my ($self, $node) = @_;
-    my $type = $node->attr('type');
+    my $type = lc($node->attr('type'));
     my $form = $self->{'form'};
     my $input = $form->find_input($node->attr('name'), $type);
-    # Vim::debug("Parsing input of type $type - " . $node->attr('name'));
     my ($line, $from, $to, $update, $target, $getVal, $setVal);
     if ( not $type or $type eq 'text' ) {
-        $self->out( ']> ' );
+        my $value = $input->value;
+        $self->out( "]> " );
         $line = $self->{'line'};
         $from = $self->{'curpos'} - 1;
-        $to =  $self->{'rm'};
-        my $afrom = $self->{'actpos'};
+        $to =  INF;
+        $self->out($value);
         $getVal = sub {
             my $text = shift->getLine($line);
-            my $res = substr($text, $afrom, $to-$afrom+1);
+            my $res = substr($text, $from);
             $res =~ s/^\s*//o;
             $res =~ s/\s*$//o;
             $res
@@ -257,22 +285,19 @@ sub input_start {
         $setVal = sub {
             my $page = shift;
             my $text = $page->getLine($line);
-            substr($text, $afrom, $to-$afrom+1) = shift;
+            substr($text, $from) = shift;
             $page->setLine($line, $text);
         };
         $update = sub {
             $input->value(&$getVal(shift));
         };
         $self->vspace(0);
-    } elsif ( $type eq 'submit' or $type eq 'image' ) { 
-      # or $type eq 'reset' ) {
+    } elsif ( $type eq 'submit' or $type eq 'image' ) {
         my $value = $node->attr('value') || 'Submit'; #  || "\u$type";
-        $self->out( "<<$value>>" );
-        $self->fixCurPos(4);
-        my $hoffset = $self->{'fixpos'} ? 0 : 2;
+        $self->out( $value );
         $line = $self->{'line'};
-        $to = $self->{'curpos'} - $hoffset - 1;
-        $from = $self->{'prepos'} + $hoffset;
+        $to = $self->{'curpos'} - 1;
+        $from = $self->{'prepos'};
         $setVal = $getVal = $update = sub { 1 };
         $target = sub {
             my $obj = shift;
@@ -282,16 +307,15 @@ sub input_start {
     } elsif ( $type eq 'radio' ) {
         $self->out( '(' . ($node->attr('checked') ? '*' : ' ') . ')' );
         $from = $to = $self->{'curpos'} - 2;
-        my $afrom = $self->{'actpos'} - 2;
         $line = $self->{'line'};
         my $value = $node->attr('value');
         $getVal = sub {
-            substr(shift->getLine($line), $afrom, 1)
+            substr(shift->getLine($line), $from, 1)
         };
         $setVal = sub {
             my $page = shift;
             my $text = $page->getLine($line);
-            substr($text, $afrom, 1) = shift;
+            substr($text, $from, 1) = shift;
             $page->setLine($line, $text);
         };
         $update = sub {
@@ -305,7 +329,6 @@ sub input_start {
         $self->out( '[' . '_' x $size . ']' );
         $to = $self->{'curpos'} - 2;
         $from = $to - $size + 1;
-        my $afrom = $self->{'actpos'} - $size - 1;
         $line = $self->{'line'};
         # getval will return whether this is set or not
         $getVal = sub { $input->value ? 1 : 0 };
@@ -314,7 +337,7 @@ sub input_start {
             my $value = shift;
             $input->value($value);
             my $text = $page->getLine($line);
-            substr($text, $afrom, $size) = ($value ? '#' : '_') x $size;
+            substr($text, $from, $size) = ($value ? '#' : '_') x $size;
             $page->setLine($line, $text);
         };
         $update = sub { 1 };
@@ -324,7 +347,6 @@ sub input_start {
         $self->out( '[-<Browse>-'. ('-' x ($size - 10)) . ']' );
         $to = $self->{'curpos'} - 2;
         $from = $to - $size + 1;
-        my $afrom = $self->{'actpos'} - $size - 1;
         $line = $self->{'line'};
         $getVal = sub { $input->value };
         $setVal = sub {
@@ -335,7 +357,7 @@ sub input_start {
             $input->value($value);
             $value = '-<Browse>-'. ('-' x ($size - 10)) unless $value;
             my $text = $page->getLine($line);
-            substr($text, $afrom, $size) = substr($value, -$size);
+            substr($text, $from, $size) = substr($value, -$size);
             $page->setLine($line, $text);
         };
         $update = sub { 1 };
@@ -370,15 +392,18 @@ sub select_start {
     my $len = 0;
     my @lens = map { length(encode_utf8 $_) } @values;
     map { $len = $_ if $_ > $len } @lens;
-    $self->out("[$values[0]" . ( ' ' x ($len - $lens[0])) . ']');
+    my $selval = $input->value;
+    my ($selected) = grep { $input->value($_); $input->value eq $selval } 
+                          $input->value_names;
+    $selected = decode($self->{'encoding'}, $selected);
+    $self->out("[$selected" . ( ' ' x ($len - length($selected))) . ']');
     my $line = $self->{'line'};
     my $to = $self->{'curpos'} - 2;
     my $from = $self->{'prepos'} + 1;
-    my $afrom = $self->{'preact'} + 1;
     my ($update, $getVal, $setVal);
     $getVal = sub {
         my $text = shift->getLine($line);
-        my $res = substr($text, $afrom, $len);
+        my $res = substr($text, $from, $len);
         $res =~ s/^\s*//o;
         $res =~ s/\s*$//o;
         $res
@@ -386,7 +411,7 @@ sub select_start {
     $setVal = sub {
         my $page = shift;
         my $text = $page->getLine($line);
-        substr($text, $afrom, $len) = sprintf("%-${len}s", shift);
+        substr($text, $from, $len) = sprintf("%-${len}s", shift);
         $page->setLine($line, $text);
     };
     $update = sub {
@@ -510,13 +535,22 @@ sub header_start {
     $self->vspace(1 + (6-$level) * 0.4);
     my $align = $node->attr('align') || '';
     $self->center_start if lc($align) eq 'center';
+    push @{$self->{'nextmarkup'}}, {
+        kind => "Header$level",
+        start => 1,
+    };
     1;
 }
 
 sub header_end {
     my ($self, $level, $node) = @_;
+    push @{$self->{'markup'}[$self->{'line'}]}, {
+        kind => "Header$level",
+        start => 0,
+        col => $self->{'curpos'} - 1,
+    };
     $self->vspace(0);
-    $self->out($line[$level-1] x $self->{'curpos'});
+    $self->out($line[$level-1] x ($self->{'curpos'} - $self->{'lm'}));
     my $align = $node->attr('align') || '';
     $self->center_end if lc($align) eq 'center';
     $self->vspace(1);
@@ -529,36 +563,27 @@ for my $markup ( keys %Markup ) {
     my $end = $Markup{$markup} . '_end';
     *$start = sub {
         my $self = shift;
-        unless ( exists $self->{"${markup}_start"} ) {
-            my $fallback = $Fallback{$Markup{$markup}};
-            if ( defined($fallback) ) {
-                $fallback .= '_start';
-                Vim::debug "Format for $markup not defined, calling $fallback";
-                $self->$fallback(@_);
-            } else {
-                Vim::debug "Format for $markup not defined, doing nothing!";
-            }
-            return 1;
-        }
-        $self->textflow($self->{"${markup}_start"});
-        $self->fixCurPos(length $self->{"${markup}_start"});
+        push @{$self->{'nextmarkup'}}, {
+            kind => $markup,
+            start => 1,
+        };
         1;
     };
     *$end = sub {
         my $self = shift;
-        unless ( exists $self->{"${markup}_end"} ) {
-            my $fallback = $Fallback{$Markup{$markup}};
-            if ( defined($fallback) ) {
-                $fallback .= '_end';
-                Vim::debug "Format for $markup not defined, calling $fallback";
-                $self->$fallback(@_);
-            } else {
-                Vim::debug "Format for $markup not defined, doing nothing!";
-            }
-            return 1;
+        $self->do_vspace;
+        if ( $self->{'href'} or $self->{'selecttext'} ) {
+            push @{$self->{'nextmarkup'}}, {
+                kind => $markup,
+                start => 0,
+            };
+        } else {
+            push @{$self->{'markup'}[$self->{'line'}]}, {
+                kind => $markup,
+                start => 0,
+                col => $self->{'curpos'} - 1,
+            };
         }
-        $self->textflow($self->{"${markup}_end"});
-        $self->fixCurPos(length $self->{"${markup}_end"});
         1;
     }
 }
@@ -581,10 +606,11 @@ sub hr_start {
     $self->vspace(1);
     $self->out('-' x ($self->{rm} - $self->{lm}));
     $self->vspace(1);
+    1;
 }
 
 sub br_start {
-    shift->vspace(0);
+    shift->vspace(0, 1);
     1;
 }
 
@@ -604,8 +630,8 @@ sub center_start {
     $self->{'oldlm'} = $self->{'lm'};
     $self->{'oldrm'} = $self->{'rm'};
     my $width = $self->{'rm'} - $self->{'lm'};
-    $self->{'lm'} += $width / 4;
-    $self->{'rm'} -= $width / 4;
+    $self->{'lm'} += $width / 10;
+    $self->{'rm'} -= $width / 10;
     1;
 }
 
@@ -635,6 +661,7 @@ sub div_end {
 
 sub nobr_start {
     shift->{'nobr'}++;
+    1;
 }
 
 sub nobr_end {
@@ -653,6 +680,7 @@ sub pre_start {
     $self->adjust_lm(2);
     $self->adjust_rm(-2);
     $self->{'pre'}++;
+    $self->{'prestart'} = 1;
     $self->vspace(0);
     1;
 }
@@ -661,6 +689,7 @@ sub pre_end {
     my $self = shift;
     $self->adjust_lm(-2);
     $self->adjust_rm(2);
+    chomp($self->{'output'});
     # we _don't_ want vspace here, because we don't want to go to the lm
     $self->nl;
     $self->out('<~');
@@ -822,20 +851,17 @@ sub dd_end {
 # Utilities
 #########################################
 
-sub fixCurPos {
-    my ($self, $chars) = @_;
-    $self->{'curpos'} -= $chars if $self->{'fixpos'};
-    Vim::debug("fixed curpos, curpos is " . $self->{'curpos'}, 2);
-    1;
-}
-
 sub bullet {
     shift->out(@_ ? shift() . ' ' : '');
 }
 
 sub vspace {
-    my ($self, $lines) = @_;
-    $self->{'vspace'} = $lines if $lines > $self->{'vspace'};
+    my ($self, $lines, $add) = @_;
+    if ($lines > $self->{'vspace'}) {
+        $self->{'vspace'} = $lines;
+    } elsif ($add) {
+        $self->{'vspace'} += $add;
+    }
     1;
 }
 
@@ -845,7 +871,6 @@ sub adjust_lm {
     my $shift = $lm - $self->{'curpos'};
     if ( $shift > 0 ) {
         $self->{'curpos'} = $lm;
-        $self->{'actpos'} += $shift;
         $self->collect(' ' x $shift);
     }
 }
@@ -857,7 +882,7 @@ sub adjust_rm {
 sub nl {
     my $self = shift;
     $self->{'line'}++;
-    $self->{'actpos'} = $self->{'curpos'} = 0;
+    $self->{'curpos'} = 0;
     $self->collect("\n");
     1;
 }
@@ -870,26 +895,28 @@ sub do_vspace {
         $self->nl() while $vspace-- >= 0;
         $self->{'vspace'} = -1;
         $self->{'hspace'} = 0;
-        $self->{'actpos'} = $self->{'curpos'} = $self->{'lm'};
+        $self->{'curpos'} = $self->{'lm'};
         $self->collect(' ' x $self->{'lm'});
     }
 }
 
 sub textflow {
     my $self = shift;
-    if (exists $self->{'href'} or exists $self->{'selecttext'}) {
+    if ( $self->{'href'} or exists $self->{'selecttext'}) {
         $self->{'lasttext'} .= shift;
     } else {
         if ($self->{'pre'} or $_[1]) {
-            # Strip one leading and one trailing newline so that a <pre>
-            #  tag can be placed on a line of its own without causing extra
-            #  vertical space as part of the preformatted text.
-            $_[0] =~ s/\n$//;
-            $_[0] =~ s/^\n//;
+            # Strip one leading newline so that a <pre> tag can be placed on 
+            # a line of its own without causing extra vertical space as part 
+            # of the preformatted text.
+            if ( $self->{'prestart'} ) {
+                $_[0] =~ s/^\n//;
+                $self->{'prestart'} = 0;
+            }
             $self->pre_out( $_[0] );
         } else {
             for (split(/(\s+)/, $_[0])) {
-                next unless length $_;
+                next unless length;
                 $self->out($_);
             }
         }
@@ -899,8 +926,13 @@ sub textflow {
 
 sub pre_out {
     my $self = shift;
-    my @lines = split /^/, shift;
     $self->do_vspace;
+    my @lines = split /^/, shift;
+
+    push @{$self->{'markup'}[$self->{'line'}]}, 
+        map { $_->{'col'} = $self->{'curpos'}; $_ } @{$self->{'nextmarkup'}};
+    $self->{'nextmarkup'} = [];
+
     foreach ( @lines ) {
         my $nl = chomp;
         $_ = encode_utf8 $_;
@@ -909,9 +941,7 @@ sub pre_out {
             $self->do_vspace(0);
         } else {
             $self->{'prepos'} = $self->{'curpos'};
-            $self->{'preact'} = $self->{'actpos'};
             $self->{'curpos'} += length;
-            $self->{'actpos'} += length;
         }
     }
     1;
@@ -919,36 +949,49 @@ sub pre_out {
 
 sub out {
     my $self = shift;
-    my $text = encode_utf8 shift;
+    my $text = shift;
 
     if ($text =~ /^\s*$/) {
         $self->{hspace} = 1;
         return;
     }
 
+    $text =~ tr/\x{a0}/ /;
+    my $len = length $text;
+    $text = encode_utf8 $text;
+
+    $text =~ tr/\x{0d}//d;
+
     $self->do_vspace;
     
-    if ($self->{hspace}) {
-        if ($self->{'actpos'} + length($text) > $self->{'rm'} and 
-            ($self->{'hspace'} > 1 or not $self->{'nobr'}) ) {
+    $self->{'fragment'}{delete $self->{'nextfragment'}} = $self->{'line'} 
+        if $self->{'nextfragment'};
+    if ($self->{'hspace'}) {
+        if ($self->{'curpos'} + $len > $self->{'rm'} and 
+            ($self->{'hspace'} > 1 or 
+             (not $self->{'nobr'} and $self->{'breaklines'})) ) {
             # word will not fit on line; do a line break
             $self->do_vspace(0);
         } else {
             # word fits on line; use a space
             $self->collect(' ');
             ++$self->{'curpos'};
-            ++$self->{'actpos'};
             Vim::debug("Added ' ', curpos is " . $self->{'curpos'}, 2);
         }
-        $self->{hspace} = 0;
+        $self->{'hspace'} = 0;
     }
-
+    
     $self->collect($text);
     $self->{'prepos'} = $self->{'curpos'};
-    $self->{'preact'} = $self->{'actpos'};
-    my $pos = $self->{'curpos'} += length $text;
-    $self->{'actpos'} += length $text;
+    $self->{'curpos'} += $len;
     Vim::debug("Added '$text', curpos is " . $self->{'curpos'}, 2);
+
+    push @{$self->{'markup'}[$self->{'line'}]}, map { 
+        $_->{'col'} = $_->{'start'} ? $self->{'prepos'} 
+                                    : $self->{'curpos'} - 1; $_ 
+                                } @{$self->{'nextmarkup'}};
+    $self->{'nextmarkup'} = [];
+
     1;
 }
 
