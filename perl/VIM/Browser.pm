@@ -466,7 +466,7 @@ sub openUri {
     my $request = shift;
     my $page;
     my $fragment;
-    if (ref($request) and $request->isa('HTTP::Response')) {
+    if (ref($request) and $request->isa('HTTP::Request')) {
         $page = VIM::Browser::handleRequest($request);
     } else {
         my $uri = new URI $request;
@@ -550,7 +550,7 @@ use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.3;
+    our $VERSION = 0.2;
 }
 
 # get the value of the given setting. Looks a variable g:browser_<foo>.  
