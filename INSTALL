@@ -1,0 +1,34 @@
+Installation of the browser.vim plugin
+======================================
+
+1. Requirements
+
+This plugin is mostly written in perl, so you need a perl-enable vim version  
+to use it. In addition, the perl modules libwww-perl and URI from cpan are 
+required.  One way to install these modules is by running:
+
+    cpan libwww-perl
+    cpan URI
+
+The plugin was tested on linux, with vim 6.3 and perl 5.8.4.
+
+2. Installation
+
+There are two sub-directories, 'vim' and 'perl'. The contents of the 'vim' 
+directory should be copied to some directory on the runtimepath. The contents 
+of the 'perl' directory should be copied either to a directory on the perl 
+search path, or to a subdirectory named 'perl' of a directory in the 
+runtimepath.
+
+3. Documentation
+
+The vim help file is in the doc subdirectory. Don't forget to run :helptags 
+after copying it (see :help add-local-help for details).
+
+This help file is generated from browser.pod in the current directory. You 
+may use it to view the documentation from the command line, as in
+
+    perldoc browser.pod
+
+That's it!
+

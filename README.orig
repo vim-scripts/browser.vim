@@ -1,0 +1,23 @@
+browser.vim
+===========
+
+This plugin provides vim with basic web browsing capabilities. It includes 
+support for history, bookmarks, text highlighting and more. The main 
+motivation is browsing documentation available in html, so don't expect to 
+see any flash animation :)
+
+The plugin is implemented using perl's ability to embed perl, so you will 
+need to have a perl enabled version of vim to use it. In addition, several 
+perl modules are required. The full details are in the INSTALL file.
+
+Documentation is available in pod form in 'browser.pod', and as a usual vim 
+help file.
+
+I wrote and tested it with vim version 6.3 and perl 5.8.4 on linux. I expect 
+it to work on any variant of unix (and only there).
+
+Please send me any feedback.
+
+Enjoy!
+
+Moshe Kaminsky <kaminsky@math.huji.ac.il>
