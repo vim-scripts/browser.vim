@@ -1,8 +1,8 @@
 " File Name: browser_highlight.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 01, 2004
+" Last Update: September 17, 2004
 " Description: highlight definitions for the browser. Part of browser plugin
-" Version: 0.2
+" Version: 0.3
 
 highlight browser_bold term=bold cterm=bold gui=bold
 highlight browser_italic term=italic cterm=italic gui=italic

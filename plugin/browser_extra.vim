@@ -1,8 +1,8 @@
 " File Name: browser_extra.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 03, 2004
+" Last Update: September 17, 2004
 " Description: extra browser commands. Part of the browser plugin.
-" Version: 0.2
+" Version: 0.3
 
 " don't run twice or when 'compatible' is set
 if exists('g:browser_extra_version') || &compatible

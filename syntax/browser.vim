@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 02, 2004
+" Last Update: September 17, 2004
 " Description: syntax for a browser buffer. part of the browser plugin
-" Version: 0.2
+" Version: 0.3
 "
 
 if version < 600
@@ -41,7 +41,7 @@ syntax match browserHeaderUL /^\s*^^^^*\s*$/ display
 syntax match browserHeaderUL /^\s*++++*\s*$/ display
 syntax match browserHeaderUL /^\s*""""*\s*$/ display
 syntax match browserHeaderUL /^\s*\.\.\.\.*\s*$/ display
-syntax region browserCite start=/`/ end=/'/ display
+syntax region browserCite start=/`/ end=/'/ display contains=TOP
 
 " The head
 syntax region browserHead matchgroup=browserHeadTitle 

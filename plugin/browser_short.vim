@@ -1,8 +1,8 @@
 " File Name: browser_short.vim
 " Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-" Last Update: September 03, 2004
+" Last Update: September 17, 2004
 " Description: short versions of browser commands. Part of the browser plugin
-" Version: 0.2
+" Version: 0.3
 
 " don't run twice or when 'compatible' is set
 if exists('g:browser_short_version') || &compatible

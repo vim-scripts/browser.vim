@@ -1,8 +1,8 @@
 " File Name: mappings.vim
 " Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-" Last Update: September 02, 2004
+" Last Update: September 17, 2004
 " Description: mappings for browser windows. Part of the browser plugin
-" Version: 0.2
+" Version: 0.3
 
 nnoremap <silent> <buffer>  :BrowserFollow<CR>
 nnoremap <silent> <buffer> g<LeftMouse> :BrowserFollow<CR>
@@ -20,6 +20,7 @@ nnoremap <silent> <buffer> <CR> :BrowserClick<CR>
 nnoremap <silent> <buffer> <space> <C-F>
 nnoremap <silent> <buffer> b <C-B>
 nnoremap <silent> <buffer> q :q<CR>
+nnoremap <silent> <buffer> <C-R> :Reload<CR>
 imap <silent> <buffer> <Tab> <Esc><Tab>
 imap <silent> <buffer> <S-Tab> <Esc><S-Tab>
 

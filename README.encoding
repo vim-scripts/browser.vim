@@ -1,0 +1,44 @@
+This file describes provides some guidelines for displaying web pages in 
+various encodings.
+
+1. The perl version should be at least 5.8 (I think this is a requirement 
+   disregarding the encoding issues, though)
+
+2. It is best to work with 'encoding' set to utf-8. Other possibilities are 
+   untested, probably won't work, and will anyway have problems with some web 
+   pages.
+
+3. Web pages are supposed to specify the encoding they use. Sometimes they 
+   don't, sometimes they specify it incorrectly. The value of 
+   g:browser_assumed_encoding is used when the encoding can not be deduced.  
+   If you know the encoding, you might try setting the value of this variable 
+   to it, and then reload the page.
+
+4. If you see stuff like &#8222; instead of actual characters, you need to 
+   re-install HTML::Parser. When installing it, answer 'y' to the question 
+   about unicode entities (If you happen to be using gentoo linux, you can 
+   find a modified ebuild that does it on gentoo bugzilla).
+
+5. If things are still not displayed correctly, it might be because of a bug 
+   somewhere between HTML::Parser and perl. People seem to be aware of it, so 
+   one day it will probably be fixed. Meanwhile, there is a workaround, but 
+   it involves editing HTML::TreeBuilder: First, find its location. You can 
+   do it by running
+     
+     perl -MHTML::TreeBuilder -e 'warn $INC{"HTML/TreeBuilder.pm"}'
+   
+   Edit that file, find the 'sub text {', and then the first line where 
+   '$text' appears (in my version, which is 3.13, this is line 984).  
+   Immediately after that line, add the following two lines:
+
+    use Encode;
+    $text = decode_utf8($text);
+
+   This should make all problems disappear.
+
+If you still see any encoding problems (as well as other problems), please 
+send them to me, with the page where it happened.
+
+Thanks,
+Moshe (kaminsky@math.huji.ac.il)
+

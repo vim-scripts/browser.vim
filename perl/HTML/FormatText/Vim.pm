@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 02, 2004
+# Last Update: September 17, 2004
 ###########################################################
 
 package HTML::FormatText::Vim;
@@ -10,18 +10,20 @@ use HTML::FormatText;
 use base qw(HTML::FormatText);
 use Data::Dumper;
 use URI;
+use Vim;
+use Encode;
 
 use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.2;
+    our $VERSION = 0.3;
 }
 
 # translation from attribute names (as in the perl modules and the vim 
 # variables) to html tag names. This also determines the possible values.  
-# Therefore, changes here should be reflected in browser.pod, and in the 
-# syntax file
+# Therefore, changes here should be reflected in browser.pod, and in the syntax 
+# file
 our %Markup = qw(
     bold       b
     italic     i 
@@ -36,7 +38,7 @@ our %Markup = qw(
 
 sub configure {
     my ($self, $args) = @_;
-    $self->{$_} = delete $args->{$_} foreach qw(base forms);
+    $self->{$_} = delete $args->{$_} foreach qw(base forms encoding);
     $self->{'line'} = 0;
     $self->{'formcount'} = 0;
     $self->{$_} = delete $args->{$_} 
@@ -48,10 +50,12 @@ sub nl {
     my $self = shift;
     $self->{'line'}++;
     $self->SUPER::nl(@_);
+    1;
 }
 
 sub br_start {
     shift->nl(@_);
+    1;
 }
 
 sub a_start {
@@ -68,21 +72,20 @@ sub a_start {
     $self->SUPER::a_start(@_);
 }
 
-# we keep count of the current 'line'. The curret column is in 'curpos' 
-# (though we probably shouldn't have counted on it). This way we generate the 
-# list of links per line.
+# we keep count of the current 'line'. The curret column is in 'curpos'. This 
+# way we generate the list of links per line.
 sub a_end {
     my $self = shift;
     my $node = $_[0];
     my $text = delete $self->{'lasttext'};
-    $self->{'hspace'} = 1;
+    #$self->{'hspace'} = 1;
     if (exists $self->{'href'}) {
         $self->out("<<$text>>");
         push @{$self->{'links'}[$self->{'line'}]}, {
             target => $self->{'href'}->as_string,
             text => $text,
-            from => $self->{'curpos'} - length($text) - 2,
-            to => $self->{'curpos'}-3,
+            from => $self->{'prepos'} + 2,
+            to => $self->{'curpos'} - 3,
         };
         delete $self->{'href'};
     } else {
@@ -95,6 +98,18 @@ sub a_end {
 sub form_start {
     my $self = shift;
     $self->{'form'} = $self->{'forms'}[$self->{'formcount'}++];
+    1;
+}
+
+sub form_end {
+    shift->vspace(1);
+    1;
+}
+
+# TODO: need to sort this out
+sub label_start {
+    shift->{'hspace'} = 1;
+    1;
 }
 
 sub input_start {
@@ -102,10 +117,12 @@ sub input_start {
     my $type = $node->attr('type');
     my $form = $self->{'form'};
     my $input = $form->find_input($node->attr('name'), $type);
-    my $line = $self->{'line'};
-    my ($from, $to, $update, $target, $getVal, $setVal);
+    # Vim::debug("Parsing input of type $type - " . $node->attr('name'));
+    my ($line, $from, $to, $update, $target, $getVal, $setVal);
     if ( not $type or $type eq 'text' ) {
-        $from = $self->{'curpos'} + 3;
+        $self->out( ']> ' );
+        $line = $self->{'line'};
+        $from = $self->{'curpos'} - 1;
         $to =  $self->{'rm'};
         $getVal = sub {
             my $text = shift->getLine($line);
@@ -123,14 +140,14 @@ sub input_start {
         $update = sub {
             $input->value(&$getVal(shift));
         };
-        $self->out( ']> ' );
-        $self->nl;
+        $self->vspace(1);
     } elsif ( $type eq 'submit' or $type eq 'image' ) { 
       # or $type eq 'reset' ) {
         my $value = $node->attr('value') || 'Submit'; #  || "\u$type";
-        $from = $self->{'curpos'} + 3;
         $self->out( "<<$value>>" );
+        $line = $self->{'line'};
         $to = $self->{'curpos'}-3;
+        $from = $self->{'prepos'}+2;
         $setVal = $getVal = $update = sub { 1 };
         $target = sub {
             my $obj = shift;
@@ -140,6 +157,7 @@ sub input_start {
     } elsif ( $type eq 'radio' ) {
         $self->out( '(' . ($node->attr('checked') ? '*' : ' ') . ')' );
         $from = $to = $self->{'curpos'} - 2;
+        $line = $self->{'line'};
         my $value = $node->attr('value');
         $getVal = sub {
             substr(shift->getLine($line), $from, 1)
@@ -156,6 +174,7 @@ sub input_start {
     } elsif ( $type eq 'checkbox' ) {
         $self->out( '[' . ($node->attr('checked') ? 'X' : ' ') . ']' );
         $from = $to = $self->{'curpos'} - 2;
+        $line = $self->{'line'};
         my $value = $node->attr('value');
         $getVal = sub {
             substr(shift->getLine($line), $from, 1)
@@ -171,9 +190,10 @@ sub input_start {
         };
     } elsif ( $type eq 'password' ) {
         my $size = $node->attr('size') || 6;
-        $from = $self->{'curpos'} + 2;
         $self->out( '[' . '_' x $size . ']' );
         $to = $self->{'curpos'} - 2;
+        $from = $to - $size + 1;
+        $line = $self->{'line'};
         # getval will return whether this is set or not
         $getVal = sub { $input->value ? 1 : 0 };
         $setVal = sub {
@@ -201,6 +221,7 @@ sub input_start {
     };
     push @{$self->{'links'}[$line]}, $inDesc;
     push @{$form->{'vimdata'}}, $inDesc;
+    1;
 }
 
 sub select_start {
@@ -208,13 +229,14 @@ sub select_start {
     my $form = $self->{'form'};
     my $name = $node->attr('name');
     my $input = $form->find_input($name, 'option');
-    my @values = $input->value_names;
-    my $line = $self->{'line'};
+    my @values = map { decode($self->{'encoding'}, $_) } $input->value_names;
     my $len = 0;
-    map { $len = length if length > $len } @values;
-    my $from = $self->{'curpos'} + 2;
-    $self->out("[$values[0]" . ( ' ' x ($len - length($values[0]))) . ']');
+    my @lens = map { length(encode_utf8 $_) } @values;
+    map { $len = $_ if $_ > $len } @lens;
+    $self->out("[$values[0]" . ( ' ' x ($len - $lens[0])) . ']');
+    my $line = $self->{'line'};
     my $to = $self->{'curpos'} - 2;
+    my $from = $self->{'prepos'} + 1;
     my ($update, $getVal, $setVal);
     $getVal = sub {
         my $text = shift->getLine($line);
@@ -230,7 +252,7 @@ sub select_start {
         $page->setLine($line, $text);
     };
     $update = sub {
-        $input->value(&$getVal(shift));
+        $input->value(decode_utf8(&$getVal(shift)));
     };
     my $inDesc = {
         form => $form,
@@ -244,6 +266,7 @@ sub select_start {
     };
     push @{$self->{'links'}[$line]}, $inDesc;
     push @{$form->{'vimdata'}}, $inDesc;
+    1;
 }
 
 my @line = qw(= - ^ + " .);
@@ -261,32 +284,47 @@ for my $markup ( keys %Markup ) {
     my $end = $Markup{$markup} . '_end';
     *$start = sub {
         my $self = shift;
+        unless ( exists $self->{"${markup}_start"} ) {
+            Vim::debug(
+                "Format for $markup not defined, calling SUPER::$start(@_)");
+            eval '$self->SUPER::' . $start . '(@_)';
+            return 1;
+        }
         if (exists $self->{'href'}) {
             $self->{'lasttext'} .= $self->{"${markup}_start"};
         } else {
             $self->out($self->{"${markup}_start"});
         }
-        eval '$self->SUPER::' . $start . '(@_)';
+        1;
     };
     *$end = sub {
         my $self = shift;
+        unless ( exists $self->{"${markup}_end"} ) {
+            Vim::debug(
+                "Format for $markup not defined, calling SUPER::$end(@_)");
+            eval '$self->SUPER::' . $end . '(@_)';
+            return 1;
+        }
         if (exists $self->{'href'}) {
             $self->{'lasttext'} .= $self->{"${markup}_end"};
         } else {
             $self->out($self->{"${markup}_end"});
         }
-        eval '$self->SUPER::' . $end . '(@_)';
+        1;
     }
 }
 
 sub cite_start {
     my $self = shift;
     $self->textflow('`');
+    1;
 }
+
 
 sub cite_end {
     my $self = shift;
     $self->textflow("'");
+    1;
 }
 
 sub center_start {
@@ -303,7 +341,14 @@ sub center_end {
     my $self = shift;
     $self->{'lm'} = $self->{'oldlm'};
     $self->{'rm'} = $self->{'oldrm'};
+    $self->vspace(1);
     $self->SUPER::center_end(@_);
+}
+
+sub div_end {
+    my $self = shift;
+    $self->vspace(1);
+    $self->SUPER::div_end(@_);
 }
 
 # tables - need serious improvement (TODO)
@@ -344,6 +389,7 @@ sub img_start {
     my($self,$node) = @_;
     my $alt = $node->attr('alt');
     $self->textflow( defined($alt) ? $alt : "[IMAGE]" );
+    1;
 }
 
 sub pre_start {
@@ -363,18 +409,63 @@ sub pre_end {
     $self->SUPER::pre_end(@_);
 }
 
+
 sub pre_out {
     my $self = shift;
     my @lines = split /^/, shift;
     foreach ( @lines ) {
         my $nl = chomp;
+        $_ = encode_utf8 $_;
         $self->SUPER::pre_out($_);
         if ( $nl ) {
             $self->nl;
         } else {
+            $self->{'prepos'} = $self->{'curpos'};
             $self->{'curpos'} = length($_) + 2;
         }
     }
+    1;
+}
+
+# this is mouse copied from HTML::FormatText, with the following changes:
+# - the tr is removed.
+sub out {
+    my $self = shift;
+    my $text = encode_utf8 shift;
+
+    if ($text =~ /^\s*$/) {
+        $self->{hspace} = 1;
+        return;
+    }
+
+    if (defined $self->{vspace}) {
+        if ($self->{out}) {
+            $self->nl while $self->{vspace}-- >= 0;
+        }
+        $self->goto_lm;
+        $self->{vspace} = undef;
+        $self->{hspace} = 0;
+    }
+
+    if ($self->{hspace}) {
+        if ($self->{'curpos'} + length($text) > $self->{rm}) {
+            # word will not fit on line; do a line break
+            $self->nl;
+            $self->goto_lm;
+        } else {
+            # word fits on line; use a space
+            $self->collect(' ');
+            ++$self->{'curpos'};
+        }
+        $self->{hspace} = 0;
+    }
+
+    $self->collect($text);
+    $self->{'prepos'} = $self->{'curpos'};
+    my $pos = $self->{'curpos'} += length $text;
+    Vim::debug("Added $text, curpos is " . $self->{'curpos'}, 2);
+    $self->{maxpos} = $pos if $self->{maxpos} < $pos;
+    $self->{'out'}++;
 }
 
 sub textflow {
@@ -384,6 +475,7 @@ sub textflow {
     } else {
         $self->SUPER::textflow(@_);
     }
+    1;
 }
 
 1;

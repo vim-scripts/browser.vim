@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 02, 2004
+" Last Update: September 17, 2004
 " Description: settings for a browser buffer. part of the browser plugin
-" Version: 0.2
+" Version: 0.3
 
 " make sure the browser buffers are not associated with any files
 setlocal buftype=nofile

@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 03, 2004
+# Last Update: September 17, 2004
 ###########################################################
 
 package VIM::Tie::Option;
@@ -20,7 +20,7 @@ sub STORE {
     VIM::DoCommand('let &' . "$Opt=$Value");
 }
 
-package VIM::Tie::Var;
+package VIM::Tie::Vars;
 use base 'Tie::Hash';
 
 sub TIEHASH {
@@ -45,17 +45,47 @@ sub DELETE {
     VIM::DoCommand("unlet! $_[1]");
 }
 
+package VIM::Scalar;
+use base 'Tie::Scalar';
+use Carp;
+
+sub TIESCALAR {
+    my ($class, $var, $default, $sub) = @_;
+    croak 'Must supply the name of a vim variable' unless $var;
+    croak "Third argument must be a code ref" 
+        if (defined $sub and ref($sub) ne 'CODE');
+    my $self = { 
+        var => $var,
+        default => $default,
+        'sub' => $sub || sub { $_[0] },
+    };
+    bless $self => $class;
+}
+
+sub FETCH {
+    my $self = shift;
+    my $res = $Vim::Variable{$self->{'var'}};
+    $res = $self->{'default'} unless defined $res;
+    &{$self->{'sub'}}($res);
+}
+
+sub STORE {
+    my ($self, $val) = @_;
+    $Vim::Variable{$self->{'var'}} = $val;
+}
+
 package Vim;
 use base 'Exporter';
 
-our @EXPORT_OK = qw(%Option %Variable error warning msg ask debug);
+our @EXPORT_OK = qw(%Option %Variable error warning msg ask debug bufWidth 
+                    cursor fileEscape);
 
 BEGIN {
-    our $VERSION = 0.2;
+    our $VERSION = 0.3;
 }
 
 tie our %Option, 'VIM::Tie::Option';
-tie our %Variable, 'VIM::Tie::Var';
+tie our %Variable, 'VIM::Tie::Vars';
 
 sub error {
     VIM::Msg("@_", 'ErrorMsg');
@@ -76,8 +106,46 @@ sub ask {
 sub debug {
     my $msg = shift;
     my $verbose = shift || 1;
-    msg($msg) if $Option{'verbose'} >= $verbose;
+    my ($pack, $file, $line, $sub) = caller(1);
+    ($pack, $file, $line) = caller;
+    msg("$sub($line): $msg") if $Option{'verbose'} >= $verbose;
 }
+
+sub bufWidth {
+    my $width = $Option{'textwidth'};
+    $width = $Option{'columns'} - $Option{'wrapmargin'} unless $width;
+    $width;
+}
+
+# get/set the cursor position in characters. Thanks to Antoine J. Mechelynck 
+# for the idea.
+sub cursor {
+    # get the current position
+    my ($row, $col) = $main::curwin->Cursor();
+    my $line = $main::curbuf->Get($row);
+    use bytes;
+    my $part = substr($line, 0, $col);
+    no bytes;
+    $col = length($part);
+    if ( @_ ) {
+        my ($new_r, $new_c) = @_;
+        $line = $main::curbuf->Get($new_r);
+        $part = substr($line, 0, $new_c);
+        use bytes;
+        $new_c = length($part);
+        no bytes;
+        $main::curwin->Cursor($new_r, $new_c);
+    }
+    return ($row, $col);
+}
+
+sub fileEscape {
+    local $_ = shift;
+    s/([?:%#])/\\$1/go;
+    tr/?/%/ if $^O eq 'MSWin32';
+    $_
+}
+    
 
 __DATA__
 
@@ -99,6 +167,12 @@ Vim - General utilities when using perl from within I<vim>
     msg('perl is nice');
     $file = ask('Which file to erase?', '/usr/bin/emacs');
 
+    tie $vimbin, 'VIM::Scalar',
+        'g:vim_bin',                    # vim name of the variable
+        'gvim',                         # default value
+        sub { '/usr/bin/' . shift };    # add path to the value
+    EOF
+
 =head1 DESCRIPTION
 
 This is a small module with utility functions for easier access to vim's 
@@ -106,6 +180,22 @@ facilities when working with perl. It provides the following exportable
 utilities:
 
 =over
+
+=item VIM::Scalar
+
+A class to tie a perl variable to a vim variable. Reading the value of the 
+will read the current value of the vim variable, and setting it will set the 
+vim variable. The syntax is
+
+C<tie $var, 'VIM::Scalar',> B<vim-var>[, B<default>[, B<sub>]]
+
+Where I<$var> is the perl variable, B<vim-var> is a string containing the 
+name of the vim variable, B<default>, if given is the value I<$var> will have 
+if there is no vim variable by this name (if B<default> is not given, I<$var> 
+will be C<undef> in this situation), and B<sub>, if given, is a sub ref that 
+will be applied to the value (whether it comes from an actual vim variable, 
+or the default value). The sub should accept the value, and return a modified 
+value.
 
 =item %Option
 
@@ -149,6 +239,21 @@ vim's I<input()> function.
 Produce the message given in the first argument, but only if the value of the 
 C<verbose> option is at least the second argument (1 by default).
 
+=item bufWidth()
+
+Returns the current buffer width according to the settings of B<textwidth> 
+and B<wrapmargin>
+
+=item cursor()
+
+Similar to C<$curwin-E<gt>Cursor>, and has the same signature, but works in 
+characters and not bytes.
+
+=item fileEscape()
+
+Escape characters in the given expression, so that the result can be used as 
+a plain file name in vim.
+
 =back
 
 =head1 AUTHOR
@@ -156,3 +261,4 @@ C<verbose> option is at least the second argument (1 by default).
 Moshe Kaminsky <kaminsky@math.huji.ac.il> - Copyright (c) 2004
 
 =cut
+

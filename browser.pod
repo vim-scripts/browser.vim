@@ -103,6 +103,8 @@ B<googlesearch> with the above address, this is equivalent to
 Same as L</":Browse {uri} [args]">, but force splitting a new window, even if 
 an existing browser window exists. If B<!> is given, split vertically.
 
+=item <C-R> X< browser-E<lt>C-RE<gt> >
+
 =item :Reload
 
 Reload the current page. If fetching the page failed, leaves the old content.
@@ -455,6 +457,10 @@ cursor (L</:BrowserFollow>)
 
 =item *
 
+<C-R>: Reload the current page (L</:Reload>)
+
+=item *
+
 <Tab>, <S-Tab>: next/previous link, also in insert mode 
 (L</:[N]BrowserNextLink>)
 
@@ -572,6 +578,9 @@ All settings are controlled by global variables whose name start with
 B<browser_>. Some examples and default values are given in the beginning of 
 the F<browser.vim> plugin. The recommended place for setting these variables 
 is F<after/plugin/browser.vim> (in some directory in the C<runtimepath>).
+
+Setting most variables will also have effect after the plugin is loaded.  
+Exceptions are L</g:browser_from_header> and L</g:browser_cookies_file>.
 
 =over
 
@@ -744,7 +753,7 @@ allows you to continue browsing while the program is open.
 
 =head1 VERSION
 
-Version 0.2. For vim version 6.3
+Version 0.3. For vim version 6.3
 
 =head1 AUTHOR
 

@@ -1,3 +1,27 @@
+* Version 0.3
+
+Bug fixes:
+	- Solved encoding problems (as much as can be done - see 
+	  README.encoding)
+	- Formatting did not behave correctly for markup that had no _start 
+	  and _end settings. Now fixed
+	- On windows, the buffer name can not contain ?, which broke things 
+	  for uris that contain it. Fixed.
+	- Ignored the Content-Disposition header field. As a result, 
+	  attachments (such as script files on vim.sf.net)
+	- require new enough versions of modules (HTTP::Cookies >= 1.36, 
+	  HTML::Form >= 1.038)
+	- POST requests did not follow redirections because of 
+	  mis-configuration of the user agent.
+	- link boundaries where calculated incorrectly in some cases.
+	- various other minor bugs.
+
+Other changes:
+	- added a mapping of <C-R> to reload the current page
+	- improved vimbrowse.pl to have more chance of working on windows
+	- added some more functionality to Vim.pm
+	- setting most options now has effect also after loading the plugin
+	
 * Version 0.2
 
 Main Improvements:

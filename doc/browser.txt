@@ -1,6 +1,6 @@
 *browser.txt*                     a www browser plugin for vim
 
-                      Version 0.2. For vim version 6.3
+                      Version 0.3. For vim version 6.3
 
           VIM REFERENCE MANUAL  by Moshe Kaminsky <kaminsky@math.huji.ac.il>
 
@@ -93,7 +93,7 @@ See |browser-mappings| for details.
                                  'helpheight' option. The {uri} specification
                                  may contain also bookmarks, see |browser-uri|
                                  for details. The page will be displayed
-                                 according to its content type, see 
+                                 according to its content type, see
                                  |browser-content-type| and |browser-html|.
                                  Alternatively, if a handler for the given
                                  scheme is defined, use it instead of opening,
@@ -128,7 +128,7 @@ See |browser-mappings| for details.
                                  window, even if an existing browser window
                                  exists. If "!" is given, split vertically.
 
-                                        *:Reload*
+<C-R>                                   *browser-<C-R>* *:Reload*
 :Reload                          Reload the current page. If fetching the page
                                  failed, leaves the old content.
 
@@ -335,13 +335,14 @@ way to modify the values of "radio" and "option" inputs:
 [N]<C-N>                                *browser-<C-N>*
 :[N]BrowserNextChoice                   *:BrowserNextChoice* *:NextChoice*
 :[N]NextChoice           Change the value of the input under the cursor, which
-                         must be either a radio button or an option, to the N-
-                         th next one. N defaults to 1. For radio buttons, but
-                         not for options, the operation is cyclic: pressing
-                         <C-N> when the selected button is the last one will
-                         select the first one. Note that for radio buttons,
-                         the cursor need not be on the selected button, but
-                         only on one of the buttons from the same group.
+                         must be either a radio button or an option, to the
+                         N-th next one. N defaults to 1. For radio buttons,
+                         but not for options, the operation is cyclic:
+                         pressing <C-N> when the selected button is the last
+                         one will select the first one. Note that for radio
+                         buttons, the cursor need not be on the selected
+                         button, but only on one of the buttons from the same
+                         group.
 
 [N]<C-P>                                *browser-<C-P>*
 :[N]BrowserPrevChoice                   *:BrowserPrevChoice* *:PrevChoice*
@@ -406,6 +407,7 @@ following key mappings are available:
  *  <C-]>, g<LeftMouse>, <C-LeftMouse>: follow link or click form input under
     the cursor (|:BrowserFollow|)
  *  <C-T>, g<RightMouse>, <C-RightMouse>: go back in history (|:BrowserBack|)
+ *  <C-R>: Reload the current page (|:Reload|)
  *  <Tab>, <S-Tab>: next/previous link, also in insert mode
     (|:BrowserNextLink|)
  *  <C-N>, <C-P>: Rotate input value, for radio buttons and options
@@ -439,10 +441,10 @@ BrowserCompleteBkmkFile()        Lists all bookmark files. Used for completion
 BrowserCompleteBrowse()          Returns completion lists, for complete a uri.
                                  This will list bookmark files, bookmarks or
                                  files, depending on the number of ":" in the
-                                 initial segment.  See |:command-completion-
-                                 custom| for details about the arguments and
-                                 return type of this and the previous
-                                 function.
+                                 initial segment.  See
+                                 |:command-completion-custom| for details
+                                 about the arguments and return type of this
+                                 and the previous function.
 
 
 =============================================================================
@@ -508,6 +510,9 @@ All settings are controlled by global variables whose name start with
 "browser.vim" plugin. The recommended place for setting these variables is
 "after/plugin/browser.vim" (in some directory in the 'runtimepath').
 
+Setting most variables will also have effect after the plugin is loaded.
+Exceptions are |g:browser_from_header| and |g:browser_cookies_file|.
+
                                         *g:browser_data_dir*
 g:browser_data_dir               Default: The "browser" sub directory of the
                                  first writeable directory in'runtimepath'.
@@ -553,7 +558,7 @@ g:browser_assumed_encoding       Default: "utf-8"
                                  not be deduced from the page headers.
 
 g:browser_plugin_version                *g:browser_plugin_version*
-g:browser_short_version                 *g:browser_short_version*
+g:browser_short_version                 *g:browser_short_version* 
                                         *g:browser_extra_version*
 g:browser_extra_version          These variables are set to the plugin version
                                  in the files"plugin/browser.vim",

@@ -1,15 +1,15 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-" Last Update: September 03, 2004
+" Last Update: September 17, 2004
 " Description: web browser plugin for vim
-" Version: 0.2
+" Version: 0.3
 "
 
 " don't run twice or when 'compatible' is set
 if exists('g:browser_plugin_version') || &compatible
   finish
 endif
-let g:browser_plugin_version = 0.2
+let g:browser_plugin_version = 0.3
 
 " add <dir>/perl to the perl include path, for each dir in runtimepath. This 
 " way we can install the modules in a vim directory, instead of the global 
@@ -109,16 +109,14 @@ command! -bar -range=1 BrowserPrevLink call BrowserPrevLink(<count>)
 """"""""""""" autocommands """"""""""""""""""""
 augroup Browser
   au!
-  autocmd WinEnter *-* call BrowserUpdateInstance()
-  autocmd BufWipeout *-* call BrowserCleanBuf(expand("<afile>"))
-  autocmd CursorHold *-* call BrowserShowLinkTarget()
+  autocmd WinEnter VimBrowser:-*/*- call BrowserUpdateInstance()
+  autocmd BufWipeout VimBrowser:-*/*- call BrowserCleanBuf(expand("<afile>"))
+  autocmd CursorHold VimBrowser:-*/*- call BrowserShowLinkTarget()
 augroup END
 
 """""""""""""" functions """""""""""""""""""""""
 function! BrowserUpdateInstance()
-  if exists('w:browserId')
-    perl VIM::Browser::winChanged
-  endif
+  perl VIM::Browser::winChanged
 endfunction
 
 function! BrowserCleanBuf(Buf)
@@ -129,9 +127,7 @@ EOF
 endfunction
 
 function! BrowserShowLinkTarget()
-  if exists('w:browserId')
-    perl VIM::Browser::showLinkTarget
-  endif
+  perl VIM::Browser::showLinkTarget
 endfunction
 
 function! BrowserBrowse(File, ...)

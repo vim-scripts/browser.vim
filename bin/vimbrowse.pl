@@ -1,16 +1,23 @@
 #!/usr/bin/env perl
 # File Name: vimbrowse.pl
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 03, 2004
+# Last Update: September 17, 2004
 ###########################################################
 
 use warnings;
 use integer;
-
+use File::Basename;
+use File::Spec::Functions;
 
 BEGIN {
-    our $VERSION = 0.2;
-    our $VIM = $ENV{'VIMBIN'} || '/usr/bin/gvim';
+    our $VERSION = 0.3;
+    # Don't know where to look for gvim on windows - let's try the PATH
+    our $VIM = $^O eq 'MSWin32' ? 'gvim' : '/usr/bin/gvim';
+    $VIM = $ENV{'VIMBIN'} if $ENV{'VIMBIN'};
+    # for some reason, gvim on windows doesn't like stdout, so we use vim 
+    # instead of gvim to get the serverlist, which we assume to be in the 
+    # same directory as gvim
+    our $SERVERLIST = catfile(dirname($VIM), 'vim') . ' --serverlist';
     our $HOMEPAGE = $ENV{'HOMEPAGE'} || 'http://vim.sf.net/';
     our $SERVERNAME = 'VIMBROWSER';
 
@@ -53,7 +60,7 @@ my $VimOpts = '';
 $VimOpts .= "lines=$height " if $height;
 $VimOpts .= "columns=$width " if $width;
 
-my @Instances = grep { /^$SERVERNAME/o } sys("$VIM --serverlist");
+my @Instances = grep { /^$SERVERNAME/o } sys($SERVERLIST);
 $remote = '' unless @Instances;
 my %Instances;
 @Instances{@Instances} = @Instances;
@@ -66,7 +73,7 @@ if ( $remote ) {
     unshift @ARGV, $HOMEPAGE unless @ARGV;
     sys("$VIM --servername $SERVERNAME");
     ( $ServerName ) = grep { /^$SERVERNAME/o and not $Instances{$_} } 
-        sys("$VIM --serverlist") until defined $ServerName;
+        sys($SERVERLIST) until defined $ServerName;
     chomp $ServerName;
     $ExtraFirst = ' | bw 1';
 }
