@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 # File Name: vimbrowse.pl
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 17, 2004
+# Last Update: September 26, 2004
 ###########################################################
 
 use warnings;
@@ -10,14 +10,21 @@ use File::Basename;
 use File::Spec::Functions;
 
 BEGIN {
-    our $VERSION = 0.3;
+
+    our $VERSION = 0.4;
+    sub broken { $^O eq 'MSWin32' } 
+
     # Don't know where to look for gvim on windows - let's try the PATH
-    our $VIM = $^O eq 'MSWin32' ? 'gvim' : '/usr/bin/gvim';
+    our $VIM = broken() ? 'gvim' : '/usr/bin/gvim';
     $VIM = $ENV{'VIMBIN'} if $ENV{'VIMBIN'};
     # for some reason, gvim on windows doesn't like stdout, so we use vim 
     # instead of gvim to get the serverlist, which we assume to be in the 
     # same directory as gvim
-    our $SERVERLIST = catfile(dirname($VIM), 'vim') . ' --serverlist';
+    my $vimdir = dirname($VIM);
+    my @vimpath = qw(vim);
+    unshift @vimpath, $vimdir unless $vimdir eq curdir;
+    our $SERVERLIST = catfile(@vimpath) . ' --serverlist';
+    $VIM = 'start ' . $VIM if broken();
     our $HOMEPAGE = $ENV{'HOMEPAGE'} || 'http://vim.sf.net/';
     our $SERVERNAME = 'VIMBROWSER';
 
@@ -80,15 +87,17 @@ if ( $remote ) {
 
 my $VimCmd = "$VIM --servername $ServerName --remote-send";
 
-sys("$VimCmd ':set $VimOpts<CR>'") if $VimOpts; 
+# windows doesn't like single quotes. *sigh*
+my $q = broken() ? '"' : "'";
+sys("$VimCmd $q:set $VimOpts<CR>$q") if $VimOpts; 
 
 exit unless @ARGV;
 
-sys("$VimCmd ':$BrowseFirstCmd " . shift(@ARGV) . "$ExtraFirst<CR>'");
+sys("$VimCmd $q:$BrowseFirstCmd " . shift(@ARGV) . "$ExtraFirst<CR>$q");
 
 foreach ( @ARGV ) {
     sleep 1;
-    sys("$VimCmd ':$SplitCmd $_<CR>'");
+    sys("$VimCmd $q:$SplitCmd $_<CR>$q");
 }
 
 __DATA__

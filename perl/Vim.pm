@@ -1,6 +1,6 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 17, 2004
+# Last Update: September 26, 2004
 ###########################################################
 
 package VIM::Tie::Option;
@@ -81,7 +81,7 @@ our @EXPORT_OK = qw(%Option %Variable error warning msg ask debug bufWidth
                     cursor fileEscape);
 
 BEGIN {
-    our $VERSION = 0.3;
+    our $VERSION = 0.4;
 }
 
 tie our %Option, 'VIM::Tie::Option';
@@ -100,7 +100,8 @@ sub msg {
 }
 
 sub ask {
-    my $res = VIM::Eval('input(' . join(',', map { "'$_'" } @_) . ')');
+    my $vimCmd = $Option{'guioptions'} =~ /c/ ? 'input' : 'inputdialog';
+    my $res = VIM::Eval("$vimCmd(" . join(',', map { "'$_'" } @_) . ')');
 }
 
 sub debug {
@@ -232,7 +233,8 @@ allowed, and they are concatenated.
 =item ask()
 
 ask the user a question. The arguments and their meaning are the same as for 
-vim's I<input()> function.
+vim's I<input()> function. The function will call I<input()> or  
+I<inputdialog> depending on the C<c> option in B<guioptions>.
 
 =item debug()
 

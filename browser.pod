@@ -1,3 +1,5 @@
+# vim: set fo+=t:
+
 =head1 NAME
 
 browser - a www browser plugin for vim
@@ -78,8 +80,8 @@ L</"Content-Type handling"> and L</"HTML formatting">. Alternatively, if a
 handler for the given scheme is defined, use it instead of opening, see 
 L</SCHEMES>.
 
-If the page was already opened, it will not be loaded again, use L</:Reload> 
-if you want to reload it.
+If the page was already opened, it will not be loaded again, use 
+L</:Reload[!]> if you want to reload it.
 
 If [args] are given, they are appended to the {uri} as follows: The first 
 argument is appended as is. Each of the others is appended with a B<&> in 
@@ -94,7 +96,7 @@ B<googlesearch> with the above address, this is equivalent to
 
         :Browse ::googlesearch foo bar sitesearch=www.sf.net
 
-(but see also L</":Google {words}"> for this particular example).
+(but see also L</":Google [words]"> for this particular example).
 
 =item :BrowserSplit[!] {uri} [args]
 
@@ -105,9 +107,15 @@ an existing browser window exists. If B<!> is given, split vertically.
 
 =item <C-R> X< browser-E<lt>C-RE<gt> >
 
-=item :Reload
+=item :BrowserReload[!]
 
-Reload the current page. If fetching the page failed, leaves the old content.
+=item :Reload[!]
+
+Reload the current page. If fetching the page failed, leaves the old content.  
+If the page is the result of posting form data (see L</"Forms">), the browser 
+will prompt the user whether to re-submit it. Pressing any key other than 
+B<n> will resubmit the post. To avoid the question (giving a positive 
+answer), add B<!>.
 
 =item CTRL-] X<browser-CTRL-]>
 
@@ -135,7 +143,9 @@ L</"Forms"> for details.
 
 Instead of opening the link under the cursor, save it to a file, given by 
 [file]. If [file] is not given, the user is prompted to give one. This will 
-also happen if you L</:Follow> a link whose content type is not supported.
+also happen if you L</:Follow> a link whose content type is not supported.  
+The prompt may be either graphical or command-line, depending on the B<c> 
+flag in C<guioptions>.
 
 Note that this will not work if an external handler is defined for the scheme 
 of the link (see L</SCHEMES>).
@@ -152,6 +162,26 @@ L</"HTML formatting"> for details about that.
 
 If the content type is not supported, the contents will be saved to a file 
 instead, as if L</:SaveLink [file]> was used (with no [file]).
+
+=head2 Images
+
+The vim browser can not display inline images, but it supports saving them to 
+a file:
+
+=over
+
+=item :BrowserImageSave [file]
+
+=item :ImageSave [file]
+
+Save the image under the cursor to the given [file]. If [file] is not given, 
+the user is prompted for a file name (use the B<c> flag of C<guioptions> to 
+switch between graphical and command-line dialogs).
+
+=back
+
+An image appears as text between B<{> and B<}>. The text is either what the 
+web page supplies (as the alt attribute) or the word B<IMAGE>.
 
 =head1 History
 
@@ -296,15 +326,10 @@ This includes, eg, various search services, such as google or
 B<http://vim.sf.net/search.php>.
 
 A form usually consists of several B<inputs>. An input is one individual data 
-item in a form. The plugin currently supports all input kinds except for 
-B<file>, B<textarea> and B<option>s which allow selection of multiple items.
-
-There are several ways to change the value of an input: first, changing the 
-value by simply editing the buffer will work for every input except for 
-B<password>. This is not recommended, though (except for B<text> inputs), 
-since it may lead to errors. The L</":Follow"> command and its variants can 
-be used to modify the inputs, as explained below. In addition, there is a 
-form specific command:
+item in a form. The plugin currently supports all input types. Unless 
+L</"g:browser_page_modifiable"> is set to 1 (it is 0 by default), the 
+C<modifiable> option is off for browser pages, so to change the value of a an 
+input, you need to use the L</":Follow"> command, or the following:
 
 =over
 
@@ -319,7 +344,7 @@ specific details for each input type.
 
 =back
 
-The following input types are supported:
+These commands have different effect for each input type, as follows:
 
 =head3 text inputs
 
@@ -332,6 +357,10 @@ of the line. Clicking such an input will just cause vim to enter insert mode.
 Note that the whole input must remain on one line.  Pressing <Tab> or <S-Tab> 
 will exit insert mode and put the cursor on the next or previous link or 
 input, just like L</":[N]NextLink">.
+
+If you use <Esc> or <CR> to exit insert mode, the page will retain the 
+C<modifiable> state it had before clicking the input, but any other method of 
+going out of insert mode will not have this effect.
 
 =head3 submit inputs
 
@@ -373,15 +402,23 @@ Same as L</":[N]NextChoice"> above, but rotate backwards.
 
 =head3 option inputs
 
-An option input also allows to choose one value out of several, but only the 
-currently selected option is displayed. This is usually implemented as a 
-dropdown menu. The selected option will appear between square brackets. When 
-clicked, the user will be presented with a menu of all possible choices. In 
-addition, it is possible to cycle through the values (see 
-L</":[N]NextChoice">), as with radio buttons.
+There are, in fact, two kinds of option inputs, single valued and multi 
+valued.
+
+Similarly to radio buttons (see L</"radio inputs">), a single valued option 
+input also allows to choose one value out of several, but only the currently 
+selected option is displayed. This is usually implemented as a dropdown menu.  
+The selected option will appear between square brackets.  When clicked, the 
+user will be presented with a menu of all possible choices. In addition, it 
+is possible to cycle through the values (see L</":[N]NextChoice">), as with 
+radio buttons.
 
 Hint: The B<v> and B<c> flags of C<guioptions> control the behaviour of the 
 menu when the gui is running.
+
+A multi valued option input allows to have a subset of the values chosen, 
+instead of one. It is emulated using checkbox buttons (see 
+L</"checkbox inputs">), one for each option.
 
 =head3 checkbox inputs
 
@@ -395,6 +432,46 @@ They will appear as B<[######]> when a value is set, and as B<[______]>
 otherwise. Clicking it will prompt the user for the value, using 
 I<inputsecret()>. Unlike the other inputs, this one can not be editted 
 directly, and clicking it is the only way to set its value.
+
+=head3 file inputs
+
+A file input is used for attaching a file. Clicking it will cause a browse 
+dialog to open, if possible, and the file to attach should be selected. If 
+the vim version does not have the I<+browse> feature, a regular input prompt 
+will be used (either graphical or command line, depending on the B<c> flag of 
+C<guioptions>).
+
+=head3 textareas
+
+A textarea is an area where a user can enter any amount of plain text. A 
+textarea appears folded, with two lines composed mainly of B<-> characters 
+showing its start and end lines. Clicking the top line will open a preview 
+window containing the current text in the textarea. The text can be modified 
+in this window. Upon leaving the preview window (either by closing it, or by 
+moving to another window), the text in the browser page will be updated.
+
+In case there are more text lines than the numbers of lines allocated to it 
+on the browser page, the following commands can be used to scroll the text:
+
+=over
+
+=item [N]<C-Down> X< browser-E<lt>C-DownE<gt> >
+
+=item :[N]BrowserTextScrollUp
+
+=item :[N]ScrollUp
+
+Scroll the text in the text area up N lines. N defaults to 1. The command 
+only works while the cursor is on the text area. Note that scrolling the text 
+up moves the cursor down, so the mapping makes sense.
+
+=item [N]<C-Up> X< browser-E<lt>C-UpE<gt> >
+
+=item :[N]BrowserTextScrollDown
+
+=item :[N]ScrollDown
+
+Same as L</":[N]ScrollUp">, but in the other direction.
 
 =head1 Miscellaneous commands
 
@@ -440,9 +517,9 @@ Same as L</:[N]NextLink>, but backwards.
 
 =head1 Mappings
 
-The key mappings are only available if the F<ftplugin/browser/mappings.vim> 
-file from the F<extra> directory is installed. When this file is installed, 
-the following key mappings are available:
+Unless mentioned otherwise, the key mappings are only available if the 
+F<ftplugin/browser/mappings.vim> file from the F<extra> directory is 
+installed. The following key mappings are available:
 
 =over
 
@@ -457,7 +534,7 @@ cursor (L</:BrowserFollow>)
 
 =item *
 
-<C-R>: Reload the current page (L</:Reload>)
+<C-R>: Reload the current page (L</:Reload[!]>)
 
 =item *
 
@@ -471,7 +548,20 @@ cursor (L</:BrowserFollow>)
 
 =item *
 
-<CR>: Click form input, change value or submit (L</:BrowserClick>)
+<CR>: Click form input, change value or submit (L</:BrowserClick>). In insert 
+mode, <CR> is mapped to <Esc>, but this might change in a future version.
+
+=item *
+
+<C-S>: Search the web for the current or selected words, using the current 
+default search engine.  Only available if F<plugin/browser_extra.vim> is 
+installed.  (L</:Search [words]>).
+
+=item *
+
+<C-K>: Lookup the word under the cursor in the current default keyword lookup 
+facility. Only available if F<plugin/browser_extra.vim> is installed.  
+(L</:Keyword [word]>).
 
 =item *
 
@@ -487,32 +577,6 @@ b: Scroll one page backward
 
 X< browser-q >
 q: Close the browser window
-
-=back
-
-=head1 Functions
-
-The functions mainly correspond to the command. I will only detail here some 
-function that don't.
-
-=over
-
-=item BrowserShowLinkTarget()
-
-Show the uri of the link currently under the cursor. This is called when 
-there was no keypress for C<updatetime> ms, via the I<CursorHold> event.
-
-=item BrowserCompleteBkmkFile()
-
-Lists all bookmark files. Used for completion of bookmark file names in 
-commands.
-
-=item BrowserCompleteBrowse()
-
-Returns completion lists, for complete a uri. This will list bookmark files, 
-bookmarks or files, depending on the number of B<:> in the initial segment.  
-See I<:command-completion-custom> for details about the arguments and return 
-type of this and the previous function.
 
 =back
 
@@ -545,13 +609,13 @@ L</g:browser_{attr}_highlight> variables.
 
 =head3 F<plugin/browser_extra.vim> X<browser-browser_extra.vim>
 
-Provides some extra convinience commands. Currently contains:
+Provides some extra convinience commands. Currently contains the commands and 
+mappings for searching the web (see L</"Searching the web">), as well as the 
+following commands:
+
+X< browser-vim-site>
 
 =over
-
-=item :Google {words}
-
-Search the web for the given {words}, using google.
 
 =item :VimSearch {type} {words}
 
@@ -569,6 +633,68 @@ Open the page of the vim script with the given {id}
 Open the tip with the given {id}
 
 =back
+
+=head2 Searching the web
+
+The special bookmarks file B<_search> contains addresses of both general 
+purpose and specific search engines. Several commands make use of this file:
+
+=over
+
+=item :SearchUsing {facility} [words]
+
+Search the web for [words], using the given {facility}. {facility} is one of 
+the bookmarks in that file. If no word is given, use the word under the 
+cursor. For example,
+
+        :SearchUsing google foo bar
+
+will search these words with google.
+
+=item [{visual}]<C-S> X< browser-E<lt>C-SE<gt> >
+
+=item :Search [words]
+
+Search using the facility given by the L</"g:browser_search_engine"> 
+variable. If no words are given, use the current word. This variable can be 
+set in a filetype plugin, to reflect different search sites for different 
+purposes.
+
+For example, you might have
+
+        let g:browser_search_engine = 'perldoc'
+
+in your F<perl.vim> ftplugin,
+
+        let g:browser_search_engine = 'vimdoc'
+
+in the F<vim.vim> plugin, etc.
+
+(If you have useful sites to put here, please send them to me!)
+
+<C-S> searches the word under the cursor, or the words selected in the visual 
+region, if used for {visual}.
+
+=item <C-K> X< browser-E<lt>C-KE<gt> >
+
+=item :Keyword [word]
+
+Same as L</":Search [words]">, but at only one word is allowed, and uses 
+L</"g:browser_keyword_search"> instead of L</"g:browser_search_engine">.
+
+=item :Google [words]
+
+=item :Dictionary [word]
+
+=item :Thesaurus [words]
+
+Shortcuts for L</":SearchUsing {facility} [words]">, with {facility} set to 
+google, dictionary or thesaurus, respectively.
+
+=back
+
+There is also a command for searching the vim site, 
+L</":VimSearch {type} {words}">
 
 Loading of this plugin can be avoided by setting L</g:browser_extra_version>.
 
@@ -606,6 +732,35 @@ To disable the whole bookmarks system, set this option to the empty string.
 Default: F<default>
 
 The default B<current> bookmarks file. See L</BOOKMARKS> for details.
+
+=item g:browser_page_modifiable
+
+Default: 0
+
+If set to a false value (such as 0), the browser buffers are not modifiable.  
+This makes it safer, since accidentally changing lines will make links 
+unusable. It also looks much better with the B<conceal> patch. The only 
+drawback is that a restricted set of operations is available for editing form 
+inputs (see L</"Forms"> for details). But since the only input type which 
+requires substantial editing, the textarea, is modified in another buffer, 
+it's not a severe restriction.
+
+Setting it to 1 will revert to the situation in the versions before 0.4, that 
+the page is modifiable.
+
+=item g:browser_search_engine
+
+Default: B<google>
+
+The search facility to use with the L</":Search [words]"> command.  See 
+L</"Searching the web"> for details.
+
+=item g:browser_keyword_search
+
+Default: B<dictionary>
+
+The search facility to use with the L</":Keyword [word]"> command. See 
+L</"Searching the web"> for details.
 
 =item g:browser_from_header
 
@@ -707,6 +862,7 @@ attribute, in case L</g:browser_{attr}_start> is undefined.
         -----------------------------------------
         bold            b
         italic          i
+        underline       u
         teletype        tt
         strong          strong          bold
         em              em              italic
@@ -714,6 +870,7 @@ attribute, in case L</g:browser_{attr}_start> is undefined.
         kbd             kbd             teletype
         samp            samp            teletype
         var             var             teletype
+        definition      dfn             underline
 
 =head2 SCHEMES
 
@@ -753,10 +910,9 @@ allows you to continue browsing while the program is open.
 
 =head1 VERSION
 
-Version 0.3. For vim version 6.3
+Version 0.4. For vim version 6.3
 
 =head1 AUTHOR
 
 Moshe Kaminsky <kaminsky@math.huji.ac.il>
-
 

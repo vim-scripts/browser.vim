@@ -1,6 +1,6 @@
 # File Name: Browser.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 17, 2004
+# Last Update: September 26, 2004
 ###########################################################
 
 ############# description of this module ##################
@@ -135,11 +135,12 @@ use Encode;
 use URI;
 use Vim;
 use Data::Dumper;
+use Carp qw(carp croak verbose);
 
 # arguments for construction: after the class name we have an HTTP::Response, 
 # and then pairs of key => value, with values for the various attributes.  
-# This list must include at least the keys: buffer, fragment, links, type and 
-# uri.
+# This list must include at least the keys: buffer, fragment, links, images, 
+# type and uri.
 sub new {
     my $class = shift;
     my $response = shift;
@@ -184,6 +185,9 @@ sub new {
         # the input is stored in the 'input' field.
         # Initialized by the formatter.
         links => delete $args{'links'},
+        # the inline images in the page. Structure is the same as the 'links' 
+        # field
+        images => delete $args{'images'},
         # the raw list of bytes retrieved from the location
         source => undef,
         # the vim file type corresponding to the source. Initialized by the 
@@ -196,11 +200,12 @@ sub new {
     bless $self => $class;
     if ( $response ) {
         $self->source = $response->content;
+        $self->request = $response->request;
         $self->header = { 
             'expires' => scalar(localtime($response->expires)),
             'last modified' => scalar(localtime($response->last_modified)),
             'content type' => scalar $response->content_type,
-            'encoding' => VIM::Browser::getEncoding($response),
+            'encoding' => VIM::Browser::getEncoding($response, 1),
             'language' => scalar $response->content_language,
             'server' => scalar $response->server,
             'keywords' => scalar $response->header('X-Meta-Keywords'),
@@ -227,7 +232,7 @@ for my $field (qw(header fragment)) {
 };
 
 # arrays
-for my $field (qw(links)) {
+for my $field (qw(links images)) {
     *$field = sub : lvalue {
         my $self = shift;
         @_ ? $self->{"$field"}[shift] : $self->{"$field"};
@@ -235,12 +240,22 @@ for my $field (qw(links)) {
 };
 
 # scalars
-for my $field (qw(type title source offset uri buffer)) {
+for my $field (qw(type title source offset uri request)) {
     *$field = sub : lvalue {
         $_[0]->{$field};
     };
 };
- 
+
+sub buffer : lvalue {
+    my $self = shift;
+    if ( $self->{'buffer'} ) {
+        my $num = eval { $self->{'buffer'}->Number() };
+        croak $@ if $@;
+        croak "Buffer $num does not exist" unless VIM::Eval("bufexists($num)");
+    }
+    $self->{'buffer'};
+}
+
 sub as_string {
     $_[0]->uri;
 }
@@ -250,8 +265,7 @@ sub fragmentLine {
     my $self = shift;
     my $fragment = shift;
     my $fragments = $self->fragment;
-    # for some reason we need to add 4 (TODO)
-    return $fragments->{$fragment} + $self->offset + 4;
+    return $fragments->{$fragment} + $self->offset;
 }
 
 ## The document header, showing and removing
@@ -280,38 +294,65 @@ sub removeHeader {
 sub getLine {
     my ($self, $line) = @_;
     my $Offset = $self->offset;
-    $self->buffer->Get($line - $Offset + 1);
+    $self->buffer->Get($line + $Offset + 1);
 }
 
 # set the line with the given number, not including the header, to the given
-# value. Line numbers start from 1
+# values. Line numbers start from 1
 sub setLine {
-    my ($self, $line, $value) = @_;
+    my ($self, $line, @values) = @_;
     my $Offset = $self->offset;
-    $self->buffer->Set($line - $Offset + 1, $value);
+    Vim::debug("Setting line $line to @values");
+    $self->Set($line + $Offset + 1, @values);
 }
+
+# update the area in the page dedicated to a textarea with the text
+sub updateTextArea {
+    my ($self, $line, $lines) = @_;
+    Vim::debug("Updating textarea on line $line");
+    my $link = $self->links($line)->[0];
+    chomp (my @text = split /^/, $link->{'input'}->value);
+    my $max = scalar(@text) - $lines;
+    my $displine = $link->{'displayline'};
+    $displine = $max if $displine > $max;
+    $displine = 0 if $displine < 0;
+    $link->{'displayline'} = $displine;
+    splice @text, 0, $displine;
+    splice @text, $lines if $max > 0;
+    $self->setLine(++$line, @text);
+    $line += scalar(@text);
+    $lines -= scalar(@text);
+    $self->setLine($line++, '') while ( $lines-- );
+    1;
+}
+
+    
 
 # return the link in the current cursor location, or undef if there is no 
 # link. The returned object is the corresponding hashref in the 'links' 
 # field.
+# If a true argument is passed, look in the images instead of the links
 sub findLink {
     my $self = shift;
+    my $list = shift() ? 'images' : 'links';
     my ($row, $col) = Vim::cursor();
     $row -= $self->offset;
     # no links in the header
     return undef if $row < 1;
-    my $links = $self->links($row-1);
+    my $links = $self->$list($row-1);
     my @links = grep { $col >= $_->{'from'} and $col <= $_->{'to'} } @$links;
     shift @links || undef;
 }
 
 # find the next/prev link. Arguments are the direction (1 for next, -1 for 
-# prev), and coordinate as returned by Vim::cursor.
+# prev), and coordinate as returned by Vim::cursor. If an extra true argument 
+# is given, search images instead of links.
 # Returns the hashref corresponding to the link in the 'links' field, and the 
 # line offset from the given line where the link appears (so the link will be 
 # on line $row+$offset, where $offset is this offset.
 sub findNextLink {
-    my ($self, $dir, $row, $col) = @_;
+    my ($self, $dir, $row, $col, $images) = @_;
+    my $list = $images ? 'images' : 'links';
     $row -= ($self->offset + 1);
     # we might have been in the header - $offset will compensate for that
     my $offset = 0;
@@ -321,7 +362,7 @@ sub findNextLink {
         $row = $col = 0;
     }
     # try first in the current line
-    my $links = $self->links($row);
+    my $links = $self->$list($row);
     if ( $dir > 0 ) {
         my @links = grep { $_->{'from'} > $col } @$links;
         return (shift(@links), -$offset) if @links;
@@ -335,7 +376,7 @@ sub findNextLink {
     my $nrow = $dir * $row;
     my $limit = $dir < 0 ? 0 : $self->Count() - 1;
     while ( ++$nrow <= $limit ) {
-        $links = $self->links($dir * $nrow);
+        $links = $self->$list($dir * $nrow);
         last if @$links;
     }
     return undef unless @$links;
@@ -343,7 +384,10 @@ sub findNextLink {
                     : ( $links->[0], $nrow - $row - $offset );
 }
 
-# display the link target
+# display the link target. The target can be:
+# - a uri string
+# - a uri object
+# - an HTTP::Request object
 sub linkTarget {
     my $self = shift;
     my $link = shift;
@@ -372,16 +416,50 @@ sub dump {
     close DUMP;
 }
 
+sub Set {
+    my $self = shift;
+    my $cur = $main::curbuf->Number;
+    my $hidden = $Vim::Option{'l:bufhidden'};
+    $Vim::Option{'l:bufhidden'} = 'hide';
+    VIM::DoCommand('buffer ' . $self->Number);
+    my $mod = $Vim::Option{'l:modifiable'};
+    $Vim::Option{'l:modifiable'} = 1;
+    $self->buffer->Set(@_);
+    $Vim::Option{'l:modifiable'} = $mod;
+    VIM::DoCommand("buffer $cur");
+    $Vim::Option{'l:bufhidden'} = $hidden;
+}
+
+sub Append {
+    my $self = shift;
+    my $mod = $Vim::Option{'l:modifiable'};
+    $Vim::Option{'l:modifiable'} = 1;
+    $self->buffer->Append(@_);
+    $Vim::Option{'l:modifiable'} = $mod;
+}
+
 # shortcut to call methods of the associated buffer, as if they were our
 sub AUTOLOAD {
     return if our $AUTOLOAD =~ /::DESTROY$/o;
-    return unless $AUTOLOAD =~ /^[A-Z]/o;
     my $self = shift;
     $AUTOLOAD =~ s/^(\w+::)*//o;
+    return unless $AUTOLOAD =~ /^[A-Z]/o;
     $AUTOLOAD = ref($self->buffer) . "::$AUTOLOAD";
     unshift @_, $self->buffer;
     goto &$AUTOLOAD;
 }
+
+sub DESTROY {
+    my $self = shift;
+    return if $self->{'keepbuffer'};
+    my $buf = $self->buffer;
+    if ( $buf ) {
+        my $exists = VIM::Eval('bufexists(' . $buf->Number . ')');
+        VIM::DoCommand('bwipeout ' . $buf->Number) if $exists;
+    }
+}
+
+
 
 ## The window class represents a browser window, and (loosely) a vim window.  
 #
@@ -391,8 +469,9 @@ sub AUTOLOAD {
 package VIM::Browser::Window;
 use overload '""' => 'as_string';
 use URI;
-use Vim;
+use Vim qw(debug);
 use File::Basename;
+use Data::Dumper;
 
 # we have two argument when construction: the vim command to open a window 
 # for this object (either 'new' or 'vnew'), and this window's id.
@@ -450,11 +529,13 @@ sub fragmentLine {
 
 sub setPage {
     my ($self, $page, $fragment) = @_;
-    $self->page = $page;
-    $self->fragment = $fragment;
     Vim::debug('going to buffer ' . $page->Number);
     VIM::DoCommand('buffer ' . $page->Number);
+    $self->page = $page;
+    debug('$page has buffer number ' . $page->Number);
+    $self->fragment = $fragment;
     VIM::DoCommand($self->fragmentLine);
+    1;
 }
 
 # open a location in the given Window, with default action, possibly using an 
@@ -489,7 +570,8 @@ sub openNew {
 }
 
 # get the link target of the given link, or the one at the current cursor 
-# position if not given
+# position if not given. The return type can be either a uri string or an 
+# HTTP::Request object
 sub getLink {
     my $self = shift;
     my $link = shift || $self->page->findLink;
@@ -544,13 +626,13 @@ use File::Glob ':glob';
 use Encode;
 
 use HTML::FormatText::Vim;
-use Vim;
+use Vim qw(debug);
 
 use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.2;
+    our $VERSION = 0.3;
 }
 
 # get the value of the given setting. Looks a variable g:browser_<foo>.  
@@ -565,6 +647,7 @@ sub setting {
 # deduce the content encoding of a response
 sub getEncoding {
     my $response = shift;
+    my $nowarning = shift;
     my $encoding = $response->content_encoding;
     unless ($encoding) {
         foreach ($response->header('content-type')) {
@@ -575,12 +658,13 @@ sub getEncoding {
         }
     }
     if ( $encoding and not Encode::resolve_alias($encoding) ) {
-        Vim::warning("$encoding: Unrecognized encoding");
+        Vim::warning("$encoding: Unrecognized encoding") unless $nowarning;
         $encoding = undef;
     }
     unless ($encoding) {
         $encoding = $AssumedEncoding;
-        Vim::warning("Unable to get page encoding, assuming $encoding");
+        Vim::warning("Unable to get page encoding, assuming $encoding") 
+            unless $nowarning;
     }
     $encoding;
 }
@@ -603,23 +687,23 @@ sub getAction {
     # display the error message
     $action = undef if $response->is_error;
     unless ( defined $action ) {
-        Vim::debug('asked for default action...');
+        debug('asked for default action...');
         # no action was requested - determine what is the default one
         # check if the headers says this is an attachment (RFC 2183)
         my $disp = $response->header('content-disposition');
         if ( $disp and $disp =~ /^attachment/o ) {
-            Vim::debug('  attachment found...');
+            debug('  attachment found...');
             $action = 'save';
             my $file = $1 if $disp =~ /filename=([^;]*)/o;
             if ( $file ) {
                 $file = basename($file);
                 push @_, '', $file;
-                Vim::debug("    Recommended file name: $file");
+                debug("    Recommended file name: $file");
             }
         } else {
             # try to see if we can format and display this inline
             my $content = $response->content_type();
-            Vim::debug("  content type is $content...");
+            debug("  content type is $content...");
             if ( defined $FORMAT{$content} ) {
                 $action = 'show';
             } else {
@@ -631,7 +715,7 @@ sub getAction {
             }
         }
     }
-    Vim::debug("Final action is: $action, @_");
+    debug("Final action is: $action, @_");
     return ($action, @_);
 }
 
@@ -641,20 +725,17 @@ sub getAction {
 sub dispUriText {
     my $text = shift;
     my $uri = shift;
-    my $vuri = Vim::fileEscape($uri);
     my $buffer;
     my $cur = $main::curbuf->Number;
     my $wipeout = 0;
     if ( @_ ) {
         # a specific buffer was requested
         $buffer = shift;
-        Vim::debug(
-            'Using existing buffer ' . $buffer->Name . ' for ' . $uri);
-        $buffer->Delete(1, $buffer->Count);
-        Vim::debug('going to buffer ' . $buffer->Number);
+        debug( 'Using existing buffer ' . $buffer->Name . ' for ' . $uri);
+        debug('going to buffer ' . $buffer->Number);
         VIM::DoCommand('buffer ' . $buffer->Number);
     } else {
-        Vim::debug('Creating a new buffer for ' . $uri);
+        debug('Creating a new buffer for ' . $uri);
         # This is a bit wrong because (theoretically) a file with the given 
         # name could exist
 #x          VIM::DoCommand(
@@ -662,14 +743,22 @@ sub dispUriText {
         VIM::DoCommand('silent enew');
         VIM::DoCommand('setfiletype browser');
         $buffer = $main::curbuf;
+        debug('Current buffer is ' . $buffer->Number);
         $wipeout = 1;
     }
-    VIM::DoCommand("silent! file VimBrowser:-$vuri-");
+    VIM::DoCommand(($Vim::Option{'verbose'} ? '' : 'silent! ') . 
+                   "file VimBrowser:-$uri-");
+    debug('Current buffer is ' . $buffer->Number);
+    VIM::DoCommand('ls!') if $Vim::Option{'verbose'};
     # for some reason, an extra buffer is created, wipe it out
     VIM::DoCommand('bwipeout #') if $wipeout;
-    Vim::debug('going to buffer ' . $cur);
-    VIM::DoCommand("buffer $cur");
+    my $mod = $Vim::Option{'l:modifiable'};
+    $Vim::Option{'l:modifiable'} = 1;
+    $buffer->Delete(1, $buffer->Count);
     $buffer->Append(0, @$text);
+    $Vim::Option{'l:modifiable'} = $mod;
+    debug('going to buffer ' . $cur);
+    VIM::DoCommand("buffer $cur");
     return $buffer;
 }
 
@@ -680,18 +769,26 @@ sub pageFromResponse {
     my $content_type = $response->content_type();
     my $handler = $FORMAT{$content_type};
     return () unless defined $handler;
-    my ($text, $links, $fragments, $type) = &$handler($response);
+    my ($text, $links, $images, $fragments, $type) = &$handler($response);
     if ( @$text ) {
-        $uri = $response->request->uri;
+        my $request = $response->request;
+        $uri = $request->uri;
         $uri->fragment(undef);
-        my $buffer = dispUriText($text, $uri, @_);
+        my $vuri = Vim::fileEscape($uri);
+        my $post = $request->method eq 'POST';
+        $vuri .= '(POST)' if $post;
+        my $buffer = dispUriText($text, $vuri, @_);
         my $page = new VIM::Browser::Page $response,
             buffer => $buffer,
             links => $links,
+            images => $images,
             fragment => $fragments,
             type => $type,
             uri => $uri;
-        $URI{"$uri"} = $page;
+        $URI{"$uri"} = $page unless ($post or $response->is_error);
+        debug( $page ? 'Succefully created page, buffer is ' . $page->Number 
+                     : 'Page creation failed' );
+        $page;
     } else {
         # there is no text, for some reason
         Vim::warning('Document contains no data');
@@ -731,11 +828,13 @@ sub saveResponse {
 sub handleRequest {
     my $uri = shift;
     $uri = new URI $uri unless ref($uri);
-    Vim::debug("Opening $uri");
+    debug("Opening $uri");
     my $response = fetch($uri);
     my ($action, @args) = getAction($response, shift);
     if ( $action eq 'show' ) {
-        pageFromResponse($response, @_);
+        my $page = pageFromResponse($response, @_);
+        debug('handled request, buffer is ' . $page->Number);
+        $page;
     } elsif ( $action eq 'save' ) {
         saveResponse($response, @_, @args);
     }
@@ -860,6 +959,7 @@ our $Agent = new LWP::UserAgent
 # modification.
 # - An array ref of links, as described in the 'links' field of the 
 # constructor of VIM::Browser::Page
+# - A similar array of images
 # - A hash ref of fragments, again as in the 'fragment' field of a Page.
 # - The vim filetype corresponding to this content type
 # The only argument to the function is the HTTP::Response object.
@@ -872,8 +972,13 @@ our %FORMAT = (
         my $base = getBase($response);
         my @forms = HTML::Form->parse($html, $base);
         my $formatter = new HTML::FormatText::Vim 
-            leftmargin => 0, 
-            rightmargin => $width,
+            lm => 0, 
+            rm => $width,
+            # whether we want to consider concealed elements in the position 
+            # (the conceal thing behaves differently depending on 
+            # 'modifiable')
+            fixpos => (VIM::Eval("has('conceal')") and 
+                       not setting('page_modifiable', 0)),
             encoding => $encoding,
             # the formatter will store the absolute uris for the links using 
             # this base
@@ -893,12 +998,13 @@ our %FORMAT = (
         my $text = $formatter->format_string($html);
         #x $text = encode_utf8($text);
         my $links = $formatter->{'links'};
+        my $images = $formatter->{'images'};
         my $fragment = $formatter->{'fragment'};
-        return ( [split "\n", $text], $links, $fragment, 'html');
+        return ( [split "\n", $text], $links, $images, $fragment, 'html');
     },
     'text/plain' => sub {
         # do nothing special
-        return( [split "\n", shift->content], undef, undef, undef );
+        return( [split "\n", shift->content], undef, undef, undef, undef );
     }
 );
 
@@ -1084,11 +1190,21 @@ sub showLinkTarget {
 # reload the given (or current) page
 sub reload {
     return 0 unless my $Page = getPage(@_);
+    my $request = $Page->request;
+    my $force = shift;
+    if ( ($request->method eq 'POST') and not $force ) {
+        Vim::msg('"!" not given, resubmit form data? ([y]/n)');
+        my $resubmit = VIM::Eval('nr2char(getchar())');
+        return 0 if lc($resubmit) eq 'n';
+    }
     my $buffer = $Page->buffer;
-    my $uri = $Page->uri;
-    $Page = handleRequest($uri, 'show', $buffer);
-    return 0 unless $Page;
-    $CurWin->setPage($Page);
+    my $NewPage = handleRequest($request, 'show', $buffer);
+    return 0 unless $NewPage;
+    # the old page is about to be destroyed, but it shares the buffer with 
+    # the new one. Setting this flag will keep us from wiping out the buffer 
+    # in the DESTROY method.
+    $Page->{'keepbuffer'} = 1;
+    $CurWin->setPage($NewPage);
     return 1;
 }
 
@@ -1166,14 +1282,18 @@ sub clickInput {
     my $input = $link->{'input'};
     my $name = $input->name;
     my $type = $input->type;
-    my $from = $link->{'from'};
-    my $len = $link->{'to'} - $from + 1;
     my $value = &{$link->{'getval'}}($page);
     my $encoding = $CurWin->page->header('encoding') || $AssumedEncoding;
     if ( $type eq 'text' ) {
+        $Vim::Option{'l:modifiable'} = 1;
         VIM::DoCommand('startinsert!');
     } elsif ( $type eq 'submit' ) {
         follow($link);
+    } elsif ( $type eq 'file' ) {
+        my $file = VIM::Eval("has('browse')") ? 
+            VIM::Eval("browse(0, 'Choose a file to attach', '', '')") :
+            Vim::ask('Which file to attach');
+        &{$link->{'setval'}}($page, $file);
     } elsif ( $type eq 'checkbox' ) {
         &{$link->{'setval'}}($page, $value eq 'X' ? ' ' : 'X');
     } elsif ( $type eq 'radio' ) {
@@ -1187,19 +1307,44 @@ sub clickInput {
         };
         &{$link->{'setval'}}($page, '*');
     } elsif ( $type eq 'option' ) {
-        my @values = map { encode_utf8(decode($encoding, $_)) } 
-            $link->{'input'}->value_names;
-        my @ind = (1..9, 'a'..'z')[0..$#values];
-        my $choices = join("\n", map { '&' . shift(@ind) . ". $_" } @values);
-        my $ind = VIM::Eval("confirm('', '$choices')" );
-        return unless $ind;
-        &{$link->{'setval'}}($page, $values[$ind-1]);
+        if ( $link->{'multi'} ) {
+            &{$link->{'setval'}}($page, $value eq 'X' ? ' ' : 'X');
+        } else {
+            my @values = map { chomp; encode_utf8(decode($encoding, $_)) } 
+                $link->{'input'}->value_names;
+            my @ind = (1..9, 'a'..'z')[0..$#values];
+            my $choices = join('\n', 
+                               map { '&' . shift(@ind) . ". $_" } @values);
+            my $ind = VIM::Eval("confirm('', \"$choices\")" );
+            return unless $ind;
+            &{$link->{'setval'}}($page, $values[$ind-1]);
+        }
     } elsif ( $type eq 'password' ) {
         my $response = VIM::Eval("inputsecret('?')");
         &{$link->{'setval'}}($page, $response);
+    } elsif ( $type eq 'textarea' ) {
+        # for some reason, pedit triggers the BufLeave autocommand, so we 
+        # make sure it does nothing
+        undef $CurrentTextArea;
+        VIM::DoCommand("pedit Browser-TextArea-$name");
+        VIM::DoCommand('wincmd P');
+        $Vim::Option{'l:buftype'} = 'nofile';
+        chomp(my @text = split /^/, $input->value);
+        $main::curbuf->Append(0, @text) if @text;
+        $CurrentTextArea = $link;
+        $CurrentTextArea->{'page'} = $page;
     } else { return };
 }
 
+sub setTextArea {
+    return unless $CurrentTextArea;
+    warn 'setTextArea called for ' . $main::curbuf->Name() 
+        unless $main::curbuf->Name =~ /^Browser-TextArea-/o;
+    my $text = join("\n", $main::curbuf->Get(1..$main::curbuf->Count()));
+    debug("Setting textarea to $text");
+    &{$CurrentTextArea->{'setval'}}($CurrentTextArea->{'page'}, $text);
+}
+    
 # follow the link under the cursor
 sub follow {
     my $link = shift || $CurWin->page->findLink;
@@ -1228,15 +1373,32 @@ sub saveLink {
     }
 }
 
+# handle the inline image under the cursor. All args are passed to 
+# handleRequest()
+sub handleImage {
+    my $image = $CurWin->page->findLink(1);
+    my $link = $CurWin->getLink($image);
+    if ($link) {
+        return 0 unless defined($link = checkScheme($link));
+        my $name = $link;
+        $name =~ s!^.*/!!o;
+        handleRequest($link, @_, $name);
+    } else {
+        Vim::error($CurWin->page . ': No image at this point!');
+        return 0;
+    }
+}
+
 # find the n-th next/previous link, relative to the cursor position. n is 
 # given as the first parameter. It's sign determines between prev and next.
+# If an extra argument is given and true, look for images instead.
 sub findNextLink {
     my ($row, $col) = Vim::cursor();
     my $count = shift;
     my $dir = $count < 0 ? -1 : 1;
     my ($link, $offset);
     while ( $dir * $count > 0 ) {
-        ($link, $offset) = $CurWin->page->findNextLink($dir, $row, $col);
+        ($link, $offset) = $CurWin->page->findNextLink($dir, $row, $col, @_);
         if ( $link ) {
             $row += $offset;
             $col = $link->{'from'};
@@ -1249,6 +1411,20 @@ sub findNextLink {
         return;
     }
     showLinkTarget($link);
+}
+
+sub scrollText {
+    my $page = $CurWin->page;
+    my $link = $page->findLink;
+    ($link) = $page->findNextLink(-1, Vim::cursor()) unless $link;
+    unless ( $link and defined $link->{'displayline'} ) {
+        Vim::msg('Not on a text area');
+        return;
+    }
+    my $lines = shift || 1;
+    $link->{'displayline'} += $lines;
+    &{$link->{'setval'}}($page);
+    1;
 }
 
 # show the history for the current window

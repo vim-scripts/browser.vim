@@ -1,13 +1,21 @@
 # File Name: Vim.pm
 # Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-# Last Update: September 17, 2004
+# Last Update: September 26, 2004
 ###########################################################
+package HTML::TreeBuilder::Encode;
+use HTML::TreeBuilder;
+use base qw(HTML::TreeBuilder);
+use Encode;
+
+sub text {
+    my $self = shift;
+    my $text = decode_utf8(shift);
+    $self->SUPER::text($text, @_);
+}
 
 package HTML::FormatText::Vim;
 # for some reason, 'use base' doesn't fail when the base cannot be loaded, so
 # we 'use' it explicilty
-use HTML::FormatText;
-use base qw(HTML::FormatText);
 use Data::Dumper;
 use URI;
 use Vim;
@@ -17,15 +25,16 @@ use warnings;
 use integer;
 
 BEGIN {
-    our $VERSION = 0.3;
+    our $VERSION = 0.4;
 }
 
 # translation from attribute names (as in the perl modules and the vim 
 # variables) to html tag names. This also determines the possible values.  
-# Therefore, changes here should be reflected in browser.pod, and in the syntax 
-# file
+# Therefore, changes here should be reflected in the next table, in 
+# browser.pod, and in the syntax files
 our %Markup = qw(
     bold       b
+    underline  u
     italic     i 
     teletype   tt
     strong     strong
@@ -34,30 +43,82 @@ our %Markup = qw(
     kbd        kbd
     samp       samp
     var        var
+    definition dfn
 );
 
-sub configure {
-    my ($self, $args) = @_;
-    $self->{$_} = delete $args->{$_} foreach qw(base forms encoding);
-    $self->{'line'} = 0;
-    $self->{'formcount'} = 0;
-    $self->{$_} = delete $args->{$_} 
-        foreach grep { /_(start|end)/o } keys %$args;
-    $self->SUPER::configure($args);
+# fallback style, in case special markup is not defined for this style
+our %Fallback = qw(
+    strong     b
+    em         i
+    code       tt
+    kbd        tt
+    samp       tt
+    var        tt
+    dfn        u
+);
+
+sub new {
+    my ($class, %args) = @_;
+    my $self = \%args;
+    bless $self => $class;
 }
 
-sub nl {
+sub formatSubtree {
+    my ($self, $node) = @_;
+    if ( ref $node ) {
+        my $tag = $node->tag;
+        my $func = "${tag}_start";
+        my $goon = $self->can($func) ? $self->$func($node) : 1;
+        if ( $goon ) {
+            $self->formatSubtree($_) foreach $node->content_list;
+            $func = "${tag}_end";
+            $self->$func($node) if $self->can($func);
+        }
+    } else {
+        # got text
+        $self->textflow($node);
+    }
+}
+
+sub format_string {
     my $self = shift;
-    $self->{'line'}++;
-    $self->SUPER::nl(@_);
-    1;
+    my $tree = new HTML::TreeBuilder::Encode;
+    $tree->parse(shift);
+    $tree->eof();
+    $tree->simplify_pres();
+    $tree->number_lists();
+    $self->begin();
+    $self->formatSubtree($tree);
+    $tree->delete();
+    return $self->{'output'};
 }
 
-sub br_start {
-    shift->nl(@_);
-    1;
+sub begin {
+    my $self = shift;
+    $self->{'curpos'} = 0;  # current output position.
+    $self->{'actpos'} = 0;
+    $self->{'line'} = 0; # current line number
+    $self->{'hspace'} = 0;  # horizontal space pending flag
+    $self->{'vspace'} = -1;
+    $self->{'formcount'} = 0; # current form in the list of forms
+    $self->{'output'} = '';
+    $self->{'pre'} = 0;
+    $self->{'links'} = [];
+    $self->{'images'} = [];
+    $self->{'fragment'} = {};
 }
 
+###############################################
+# The elements
+###############################################
+
+# completely ignored elements (all contents is ignored)
+for my $element ( qw(head script style frameset del) ) {
+    my $func = "${element}_start";
+    *$func = sub { 0; };
+}
+
+#### links and anchors ####
 sub a_start {
     my $self = shift;
     my $node = $_[0];
@@ -65,36 +126,64 @@ sub a_start {
     if ($node->attr('href')) {
         $self->{'href'} = URI->new_abs($node->attr('href'), $self->{'base'});
     };
-    if ($node->attr('name')) {
-        # got a fragment, update the fragments list
-        $self->{'fragment'}{$node->attr('name')} = $self->{'line'};
-    }
-    $self->SUPER::a_start(@_);
+    1;
 }
 
-# we keep count of the current 'line'. The curret column is in 'curpos'. This 
-# way we generate the list of links per line.
 sub a_end {
     my $self = shift;
     my $node = $_[0];
     my $text = delete $self->{'lasttext'};
-    #$self->{'hspace'} = 1;
     if (exists $self->{'href'}) {
         $self->out("<<$text>>");
+        $self->fixCurPos(4);
+        my $hoffset = $self->{'fixpos'} ? 0 : 2;
         push @{$self->{'links'}[$self->{'line'}]}, {
             target => $self->{'href'}->as_string,
             text => $text,
-            from => $self->{'prepos'} + 2,
-            to => $self->{'curpos'} - 3,
+            from => $self->{'prepos'} + $hoffset,
+            to => $self->{'curpos'} - $hoffset - 1,
         };
+        if ( my $imgdata = delete $self->{'image'} ) {
+            $imgdata->{'from'} = $self->{'prepos'} + $hoffset;
+            $imgdata->{'to'} = $self->{'curpos'} - $hoffset - 1;
+            push @{$self->{'images'}[$self->{'line'}]}, $imgdata;
+        }
         delete $self->{'href'};
     } else {
         $self->out($text);
     }
-    $self->SUPER::a_end(@_);
+    if ($node->attr('name')) {
+        # got a fragment, update the fragments list
+        # for some reason we need to add 3 (TODO)
+        $self->{'fragment'}{$node->attr('name')} = $self->{'line'} + 3;
+    }
+    1;
 }
 
-# forms
+sub img_start {
+    my($self,$node) = @_;
+    my $alt = $node->attr('alt');
+    my $text = defined($alt) ? $alt ? "{$alt}" : '' : '{IMAGE}';
+    return 1 unless $text;
+    $self->textflow( $text, 1 );
+    my $target = URI->new_abs($node->attr('src'), $self->{'base'});
+    my $imgdata = {
+        target => $target->as_string,
+        text => $text,
+    };
+    if ( $self->{'href'} ) {
+        # we're in the middle of a link - keep the data to be added when the 
+        # link info is available (a_end)
+        $self->{'image'} = $imgdata;
+    } else {
+        $imgdata->{'from'} = $self->{'prepos'} + 1;
+        $imgdata->{'to'} = $self->{'curpos'} - 2;
+        push @{$self->{'images'}[$self->{'line'}]}, $imgdata;
+    }
+    1;
+}
+
+#### forms ####
 sub form_start {
     my $self = shift;
     $self->{'form'} = $self->{'forms'}[$self->{'formcount'}++];
@@ -112,6 +201,39 @@ sub label_start {
     1;
 }
 
+sub do_checkbox {
+    my ($self, $node, $form, $type) = @_;
+    my ($line, $from, $to, $update, $getVal, $setVal);
+    my @inputs = $form->find_input($node->attr('name'), $type);
+    my $value = $node->attr('value');
+    my $input;
+    if ( defined $value ) {
+        ($input) = grep { grep { $_ and ($_ eq $value) } $_->possible_values } 
+                        @inputs;
+    } else {
+        ($input) = @inputs;
+    }
+    $self->out( '[' . 
+        (($node->attr('checked') or $node->attr('selected')) ? 'X' : ' ') . 
+                ']' );
+    $from = $to = $self->{'curpos'} - 2;
+    my $afrom = $self->{'actpos'} - 2;
+    $line = $self->{'line'};
+    $getVal = sub {
+        substr(shift->getLine($line), $afrom, 1)
+    };
+    $setVal = sub {
+        my $page = shift;
+        my $text = $page->getLine($line);
+        substr($text, $afrom, 1) = shift;
+        $page->setLine($line, $text);
+    };
+    $update = sub {
+        $input->value(&$getVal(shift) eq 'X' ? $value : undef);
+    };
+    return ($input, $line, $from, $to, $update, $getVal, $setVal);
+}
+
 sub input_start {
     my ($self, $node) = @_;
     my $type = $node->attr('type');
@@ -124,9 +246,10 @@ sub input_start {
         $line = $self->{'line'};
         $from = $self->{'curpos'} - 1;
         $to =  $self->{'rm'};
+        my $afrom = $self->{'actpos'};
         $getVal = sub {
             my $text = shift->getLine($line);
-            my $res = substr($text, $from, $to-$from+1);
+            my $res = substr($text, $afrom, $to-$afrom+1);
             $res =~ s/^\s*//o;
             $res =~ s/\s*$//o;
             $res
@@ -134,20 +257,22 @@ sub input_start {
         $setVal = sub {
             my $page = shift;
             my $text = $page->getLine($line);
-            substr($text, $from, $to-$from+1) = shift;
+            substr($text, $afrom, $to-$afrom+1) = shift;
             $page->setLine($line, $text);
         };
         $update = sub {
             $input->value(&$getVal(shift));
         };
-        $self->vspace(1);
+        $self->vspace(0);
     } elsif ( $type eq 'submit' or $type eq 'image' ) { 
       # or $type eq 'reset' ) {
         my $value = $node->attr('value') || 'Submit'; #  || "\u$type";
         $self->out( "<<$value>>" );
+        $self->fixCurPos(4);
+        my $hoffset = $self->{'fixpos'} ? 0 : 2;
         $line = $self->{'line'};
-        $to = $self->{'curpos'}-3;
-        $from = $self->{'prepos'}+2;
+        $to = $self->{'curpos'} - $hoffset - 1;
+        $from = $self->{'prepos'} + $hoffset;
         $setVal = $getVal = $update = sub { 1 };
         $target = sub {
             my $obj = shift;
@@ -157,42 +282,30 @@ sub input_start {
     } elsif ( $type eq 'radio' ) {
         $self->out( '(' . ($node->attr('checked') ? '*' : ' ') . ')' );
         $from = $to = $self->{'curpos'} - 2;
+        my $afrom = $self->{'actpos'} - 2;
         $line = $self->{'line'};
         my $value = $node->attr('value');
         $getVal = sub {
-            substr(shift->getLine($line), $from, 1)
+            substr(shift->getLine($line), $afrom, 1)
         };
         $setVal = sub {
             my $page = shift;
             my $text = $page->getLine($line);
-            substr($text, $from, 1) = shift;
+            substr($text, $afrom, 1) = shift;
             $page->setLine($line, $text);
         };
         $update = sub {
             $input->value($value) if &$getVal(shift) eq '*';
         };
     } elsif ( $type eq 'checkbox' ) {
-        $self->out( '[' . ($node->attr('checked') ? 'X' : ' ') . ']' );
-        $from = $to = $self->{'curpos'} - 2;
-        $line = $self->{'line'};
-        my $value = $node->attr('value');
-        $getVal = sub {
-            substr(shift->getLine($line), $from, 1)
-        };
-        $setVal = sub {
-            my $page = shift;
-            my $text = $page->getLine($line);
-            substr($text, $from, 1) = shift;
-            $page->setLine($line, $text);
-        };
-        $update = sub {
-            $input->value(&$getVal(shift) eq 'X' ? $value : undef);
-        };
+        ($input, $line, $from, $to, $update, $getVal, $setVal) = 
+            $self->do_checkbox($node, $form, $type);
     } elsif ( $type eq 'password' ) {
         my $size = $node->attr('size') || 6;
         $self->out( '[' . '_' x $size . ']' );
         $to = $self->{'curpos'} - 2;
         $from = $to - $size + 1;
+        my $afrom = $self->{'actpos'} - $size - 1;
         $line = $self->{'line'};
         # getval will return whether this is set or not
         $getVal = sub { $input->value ? 1 : 0 };
@@ -201,11 +314,31 @@ sub input_start {
             my $value = shift;
             $input->value($value);
             my $text = $page->getLine($line);
-            substr($text, $from, $size) = ($value ? '#' : '_') x $size;
+            substr($text, $afrom, $size) = ($value ? '#' : '_') x $size;
             $page->setLine($line, $text);
         };
         $update = sub { 1 };
-    
+    } elsif ( $type eq 'file' ) {
+        my $size = $node->attr('size') || 15;
+        $size = 10 if $size < 10;
+        $self->out( '[-<Browse>-'. ('-' x ($size - 10)) . ']' );
+        $to = $self->{'curpos'} - 2;
+        $from = $to - $size + 1;
+        my $afrom = $self->{'actpos'} - $size - 1;
+        $line = $self->{'line'};
+        $getVal = sub { $input->value };
+        $setVal = sub {
+            my $page = shift;
+            my $value = shift;
+            $value =~ s/^\s*//o;
+            $value =~ s/\s*$//o;
+            $input->value($value);
+            $value = '-<Browse>-'. ('-' x ($size - 10)) unless $value;
+            my $text = $page->getLine($line);
+            substr($text, $afrom, $size) = substr($value, -$size);
+            $page->setLine($line, $text);
+        };
+        $update = sub { 1 };
     } else {
         return
     }
@@ -226,6 +359,10 @@ sub input_start {
 
 sub select_start {
     my ( $self, $node ) = @_;
+    if ( $node->attr('multiple') ) {
+        $self->{'multi'} = 1;
+        return 1;
+    }
     my $form = $self->{'form'};
     my $name = $node->attr('name');
     my $input = $form->find_input($name, 'option');
@@ -237,10 +374,11 @@ sub select_start {
     my $line = $self->{'line'};
     my $to = $self->{'curpos'} - 2;
     my $from = $self->{'prepos'} + 1;
+    my $afrom = $self->{'preact'} + 1;
     my ($update, $getVal, $setVal);
     $getVal = sub {
         my $text = shift->getLine($line);
-        my $res = substr($text, $from, $len);
+        my $res = substr($text, $afrom, $len);
         $res =~ s/^\s*//o;
         $res =~ s/\s*$//o;
         $res
@@ -248,7 +386,7 @@ sub select_start {
     $setVal = sub {
         my $page = shift;
         my $text = $page->getLine($line);
-        substr($text, $from, $len) = sprintf("%-${len}s", shift);
+        substr($text, $afrom, $len) = sprintf("%-${len}s", shift);
         $page->setLine($line, $text);
     };
     $update = sub {
@@ -269,47 +407,158 @@ sub select_start {
     1;
 }
 
+sub select_end {
+    my $self = shift;
+    $self->vspace(1) if delete $self->{'multi'};
+    1;
+}
+
+sub option_start {
+    my ($self, $node) = @_;
+    return 0 unless $self->{'multi'};
+    my $form = $self->{'form'};
+    $self->vspace(0);
+    my ($input, $line, $from, $to, $update, $getVal, $setVal) =
+        $self->do_checkbox($node, $form, 'option');
+    my $inDesc = {
+        form => $form,
+        input => $input,
+        from => $from,
+        to => $to,
+        update => $update,
+        target => undef,
+        getval => $getVal,
+        setval => $setVal,
+        multi => 1,
+    };
+    push @{$self->{'links'}[$line]}, $inDesc;
+    push @{$form->{'vimdata'}}, $inDesc;
+    1;
+}
+
+sub option_end {
+    shift->vspace(0);
+    1;
+}
+
+sub textarea_start {
+    my ($self, $node) = @_;
+    my $form = $self->{'form'};
+    my $name = $node->attr('name');
+    my $input = $form->find_input($name, 'textarea');
+    my $lines = $node->attr('rows') || 10;
+    my ($line, $update, $getVal, $setVal);
+    $self->vspace(0);
+    my $text = '--- Click to edit the text area ---';
+    my $width = $self->{'rm'} - $self->{'lm'};
+    $self->out($text . ('-' x ( $width - length($text) - 4) ) . ' {{{');
+    $line = $self->{'line'};
+    my $value = $input->value;
+    my $clines = $lines;
+    foreach ( split /^/, $value ) {
+        chomp;
+        Vim::debug("Adding $_ ($clines)");
+        $self->vspace(0);
+        $self->pre_out($_);
+        Vim::debug('Line is now ' . $self->{'line'});
+        last unless --$clines;
+    }
+    Vim::debug("Adding $clines empty lines");
+    $self->vspace($clines);
+    $self->out('}}} ' . ( '-' x ($width - 4 )));
+    Vim::debug('Line is now ' . $self->{'line'});
+    $getVal = sub { $input->value };
+    $setVal = sub {
+        my $page = shift;
+        my $value = shift;
+        if (defined $value) {
+            $input->value($value);
+        } else {
+            $value = $input->value;
+        }
+        $page->updateTextArea($line, $lines);
+    };
+    $update = sub { 1 };
+    my $inDesc = {
+        form => $form,
+        input => $input,
+        from => $self->{'lm'},
+        to => $self->{'rm'},
+        update => $update,
+        target => undef,
+        getval => $getVal,
+        setval => $setVal,
+        displayline => 0,
+    };
+    push @{$self->{'links'}[$line]}, $inDesc;
+    push @{$form->{'vimdata'}}, $inDesc;
+    0;
+}
+
+#### headers ####
 my @line = qw(= - ^ + " .);
+
+for my $level ( 1..6 ) {
+    my $start = "h${level}_start";
+    my $end = "h${level}_end";
+    *$start = sub { shift->header_start($level, @_) };
+    *$end = sub { shift->header_end($level, @_) };
+}
+
+sub header_start {
+    my($self, $level, $node) = @_;
+    $self->vspace(1 + (6-$level) * 0.4);
+    my $align = $node->attr('align') || '';
+    $self->center_start if lc($align) eq 'center';
+    1;
+}
 
 sub header_end {
     my ($self, $level, $node) = @_;
     $self->vspace(0);
-    $self->out($line[$level-1] x ($self->{maxpos} - $self->{lm}));
+    $self->out($line[$level-1] x $self->{'curpos'});
+    my $align = $node->attr('align') || '';
+    $self->center_end if lc($align) eq 'center';
     $self->vspace(1);
     1;
 }
 
+#### style markup ####
 for my $markup ( keys %Markup ) {
     my $start = $Markup{$markup} . '_start';
     my $end = $Markup{$markup} . '_end';
     *$start = sub {
         my $self = shift;
         unless ( exists $self->{"${markup}_start"} ) {
-            Vim::debug(
-                "Format for $markup not defined, calling SUPER::$start(@_)");
-            eval '$self->SUPER::' . $start . '(@_)';
+            my $fallback = $Fallback{$Markup{$markup}};
+            if ( defined($fallback) ) {
+                $fallback .= '_start';
+                Vim::debug "Format for $markup not defined, calling $fallback";
+                $self->$fallback(@_);
+            } else {
+                Vim::debug "Format for $markup not defined, doing nothing!";
+            }
             return 1;
         }
-        if (exists $self->{'href'}) {
-            $self->{'lasttext'} .= $self->{"${markup}_start"};
-        } else {
-            $self->out($self->{"${markup}_start"});
-        }
+        $self->textflow($self->{"${markup}_start"});
+        $self->fixCurPos(length $self->{"${markup}_start"});
         1;
     };
     *$end = sub {
         my $self = shift;
         unless ( exists $self->{"${markup}_end"} ) {
-            Vim::debug(
-                "Format for $markup not defined, calling SUPER::$end(@_)");
-            eval '$self->SUPER::' . $end . '(@_)';
+            my $fallback = $Fallback{$Markup{$markup}};
+            if ( defined($fallback) ) {
+                $fallback .= '_end';
+                Vim::debug "Format for $markup not defined, calling $fallback";
+                $self->$fallback(@_);
+            } else {
+                Vim::debug "Format for $markup not defined, doing nothing!";
+            }
             return 1;
         }
-        if (exists $self->{'href'}) {
-            $self->{'lasttext'} .= $self->{"${markup}_end"};
-        } else {
-            $self->out($self->{"${markup}_end"});
-        }
+        $self->textflow($self->{"${markup}_end"});
+        $self->fixCurPos(length $self->{"${markup}_end"});
         1;
     }
 }
@@ -320,38 +569,149 @@ sub cite_start {
     1;
 }
 
-
 sub cite_end {
     my $self = shift;
     $self->textflow("'");
     1;
 }
 
+#### large scale document structure ####
+sub hr_start {
+    my $self = shift;
+    $self->vspace(1);
+    $self->out('-' x ($self->{rm} - $self->{lm}));
+    $self->vspace(1);
+}
+
+sub br_start {
+    shift->vspace(0);
+    1;
+}
+
+sub p_start {
+    shift->vspace(1);
+    1;
+}
+
+sub p_end {
+    shift->vspace(1);
+    1;
+}
+
 sub center_start {
     my $self = shift;
+    $self->{'center'}++;
     $self->{'oldlm'} = $self->{'lm'};
     $self->{'oldrm'} = $self->{'rm'};
     my $width = $self->{'rm'} - $self->{'lm'};
     $self->{'lm'} += $width / 4;
     $self->{'rm'} -= $width / 4;
-    $self->SUPER::center_start(@_);
+    1;
 }
 
 sub center_end {
     my $self = shift;
+    $self->{'center'}--;
+    $self->vspace(1);
+    return 1 if $self->{'center'};
     $self->{'lm'} = $self->{'oldlm'};
     $self->{'rm'} = $self->{'oldrm'};
-    $self->vspace(1);
-    $self->SUPER::center_end(@_);
+    1;
+}
+
+sub div_start {
+    my($self, $node) = @_;
+    my $align = $node->attr('align') || '';
+    return $self->center_start if lc($align) eq 'center';
+    1;
 }
 
 sub div_end {
-    my $self = shift;
+    my($self, $node) = @_;
+    my $align = $node->attr('align') || '';
+    return $self->center_end if lc($align) eq 'center';
     $self->vspace(1);
-    $self->SUPER::div_end(@_);
 }
 
-# tables - need serious improvement (TODO)
+sub nobr_start {
+    shift->{'nobr'}++;
+}
+
+sub nobr_end {
+    shift->{'nobr'} = 0;
+}
+
+sub wbr_start {
+    shift->{'hspace'} = 2;
+    1;
+}
+
+sub pre_start {
+    my $self = shift;
+    $self->vspace(0);
+    $self->out('~>');
+    $self->adjust_lm(2);
+    $self->adjust_rm(-2);
+    $self->{'pre'}++;
+    $self->vspace(0);
+    1;
+}
+
+sub pre_end {
+    my $self = shift;
+    $self->adjust_lm(-2);
+    $self->adjust_rm(2);
+    # we _don't_ want vspace here, because we don't want to go to the lm
+    $self->nl;
+    $self->out('<~');
+    $self->vspace(0);
+    $self->{'pre'}--;
+}
+
+sub listing_start      { shift->pre_start( @_ ) }
+sub listing_end        { shift->pre_end(   @_ ) }
+sub     xmp_start      { shift->pre_start( @_ ) }
+sub     xmp_end        { shift->pre_end(   @_ ) }
+
+sub blockquote_start {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm( +2 );
+    $self->adjust_rm( -2 );
+    1;
+}
+
+sub blockquote_end {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm( -2 );
+    $self->adjust_rm( +2 );
+}
+
+sub address_start {
+    my $self = shift;
+    $self->vspace(1);
+    $self->i_start(@_);
+    1;
+}
+
+sub address_end {
+    my $self = shift;
+    $self->i_end(@_);
+    $self->vspace(1);
+}
+
+#### tables - need serious improvement (TODO) ####
+
+sub table_start { 
+    shift->vspace(1);
+    1;
+}
+
+sub table_end { 
+    shift->vspace(1);
+    1;
+}
 
 sub tr_start {
     my $self = shift;
@@ -359,7 +719,7 @@ sub tr_start {
     1;
 }
 
-sub tr_end { shift->nl; 1; }
+sub tr_end { shift->vspace(0); 1; }
 
 sub td_start {
     my $self = shift;
@@ -370,8 +730,6 @@ sub td_start {
     }
     1;
 }
-
-sub td_end { 1; }
 
 sub th_start {
     my $self = shift;
@@ -385,50 +743,180 @@ sub th_start {
 
 sub th_end { shift->b_end(@_) }
 
-sub img_start {
-    my($self,$node) = @_;
-    my $alt = $node->attr('alt');
-    $self->textflow( defined($alt) ? $alt : "[IMAGE]" );
+#### lists and list elements ####
+sub ul_start {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm( +2 );
     1;
 }
 
-sub pre_start {
+sub ul_end {
     my $self = shift;
-    $self->out('~>');
-    $self->adjust_lm(2);
-    $self->adjust_rm(-2);
-    $self->SUPER::pre_start(@_);
+    $self->adjust_lm( -2 );
+    $self->vspace(1);
 }
 
-sub pre_end {
+sub li_start {
     my $self = shift;
-    $self->nl;
-    $self->out('<~');
+    $self->bullet( shift->attr('_bullet') || () );
+    $self->adjust_lm(+2);
+    1;
+}
+
+sub li_end {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm( -2);
+}
+
+sub menu_start      { shift->ul_start(@_) }
+sub menu_end        { shift->ul_end(@_) }
+sub  dir_start      { shift->ul_start(@_) }
+sub  dir_end        { shift->ul_end(@_) }
+
+sub ol_start {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm(+2);
+    1;
+}
+
+sub ol_end {
+    my $self = shift;
     $self->adjust_lm(-2);
-    $self->adjust_rm(2);
-    $self->SUPER::pre_end(@_);
+    $self->vspace(1);
 }
 
-
-sub pre_out {
+sub dl_start {
     my $self = shift;
-    my @lines = split /^/, shift;
-    foreach ( @lines ) {
-        my $nl = chomp;
-        $_ = encode_utf8 $_;
-        $self->SUPER::pre_out($_);
-        if ( $nl ) {
-            $self->nl;
+    $self->vspace(1);
+    1;
+}
+
+sub dl_end {
+    my $self = shift;
+    $self->vspace(1);
+}
+
+sub dt_start {
+    my $self = shift;
+    $self->vspace(1);
+    1;
+}
+
+sub dd_start {
+    my $self = shift;
+    $self->adjust_lm(+6);
+    $self->vspace(0);
+    1;
+}
+
+sub dd_end {
+    my $self = shift;
+    $self->vspace(1);
+    $self->adjust_lm(-6);
+}
+
+#########################################
+# Utilities
+#########################################
+
+sub fixCurPos {
+    my ($self, $chars) = @_;
+    $self->{'curpos'} -= $chars if $self->{'fixpos'};
+    Vim::debug("fixed curpos, curpos is " . $self->{'curpos'}, 2);
+    1;
+}
+
+sub bullet {
+    shift->out(@_ ? shift() . ' ' : '');
+}
+
+sub vspace {
+    my ($self, $lines) = @_;
+    $self->{'vspace'} = $lines if $lines > $self->{'vspace'};
+    1;
+}
+
+sub adjust_lm {
+    my $self = shift;
+    my $lm = $self->{'lm'} += shift;
+    my $shift = $lm - $self->{'curpos'};
+    if ( $shift > 0 ) {
+        $self->{'curpos'} = $lm;
+        $self->{'actpos'} += $shift;
+        $self->collect(' ' x $shift);
+    }
+}
+
+sub adjust_rm {
+    $_[0]->{'rm'} += $_[1];
+}
+
+sub nl {
+    my $self = shift;
+    $self->{'line'}++;
+    $self->{'actpos'} = $self->{'curpos'} = 0;
+    $self->collect("\n");
+    1;
+}
+
+sub do_vspace {
+    my $self = shift;
+    my $vspace = @_ ? shift : -1;
+    $vspace = $self->{'vspace'} if ($self->{'vspace'} > $vspace);
+    if ( $vspace >= 0 ) {
+        $self->nl() while $vspace-- >= 0;
+        $self->{'vspace'} = -1;
+        $self->{'hspace'} = 0;
+        $self->{'actpos'} = $self->{'curpos'} = $self->{'lm'};
+        $self->collect(' ' x $self->{'lm'});
+    }
+}
+
+sub textflow {
+    my $self = shift;
+    if (exists $self->{'href'} or exists $self->{'selecttext'}) {
+        $self->{'lasttext'} .= shift;
+    } else {
+        if ($self->{'pre'} or $_[1]) {
+            # Strip one leading and one trailing newline so that a <pre>
+            #  tag can be placed on a line of its own without causing extra
+            #  vertical space as part of the preformatted text.
+            $_[0] =~ s/\n$//;
+            $_[0] =~ s/^\n//;
+            $self->pre_out( $_[0] );
         } else {
-            $self->{'prepos'} = $self->{'curpos'};
-            $self->{'curpos'} = length($_) + 2;
+            for (split(/(\s+)/, $_[0])) {
+                next unless length $_;
+                $self->out($_);
+            }
         }
     }
     1;
 }
 
-# this is mouse copied from HTML::FormatText, with the following changes:
-# - the tr is removed.
+sub pre_out {
+    my $self = shift;
+    my @lines = split /^/, shift;
+    $self->do_vspace;
+    foreach ( @lines ) {
+        my $nl = chomp;
+        $_ = encode_utf8 $_;
+        $self->collect($_);
+        if ( $nl ) {
+            $self->do_vspace(0);
+        } else {
+            $self->{'prepos'} = $self->{'curpos'};
+            $self->{'preact'} = $self->{'actpos'};
+            $self->{'curpos'} += length;
+            $self->{'actpos'} += length;
+        }
+    }
+    1;
+}
+
 sub out {
     my $self = shift;
     my $text = encode_utf8 shift;
@@ -438,43 +926,35 @@ sub out {
         return;
     }
 
-    if (defined $self->{vspace}) {
-        if ($self->{out}) {
-            $self->nl while $self->{vspace}-- >= 0;
-        }
-        $self->goto_lm;
-        $self->{vspace} = undef;
-        $self->{hspace} = 0;
-    }
-
+    $self->do_vspace;
+    
     if ($self->{hspace}) {
-        if ($self->{'curpos'} + length($text) > $self->{rm}) {
+        if ($self->{'actpos'} + length($text) > $self->{'rm'} and 
+            ($self->{'hspace'} > 1 or not $self->{'nobr'}) ) {
             # word will not fit on line; do a line break
-            $self->nl;
-            $self->goto_lm;
+            $self->do_vspace(0);
         } else {
             # word fits on line; use a space
             $self->collect(' ');
             ++$self->{'curpos'};
+            ++$self->{'actpos'};
+            Vim::debug("Added ' ', curpos is " . $self->{'curpos'}, 2);
         }
         $self->{hspace} = 0;
     }
 
     $self->collect($text);
     $self->{'prepos'} = $self->{'curpos'};
+    $self->{'preact'} = $self->{'actpos'};
     my $pos = $self->{'curpos'} += length $text;
-    Vim::debug("Added $text, curpos is " . $self->{'curpos'}, 2);
-    $self->{maxpos} = $pos if $self->{maxpos} < $pos;
-    $self->{'out'}++;
+    $self->{'actpos'} += length $text;
+    Vim::debug("Added '$text', curpos is " . $self->{'curpos'}, 2);
+    1;
 }
 
-sub textflow {
+sub collect {
     my $self = shift;
-    if (exists $self->{'href'} or exists $self->{'selecttext'}) {
-        $self->{'lasttext'} .= "@_";
-    } else {
-        $self->SUPER::textflow(@_);
-    }
+    $self->{'output'} .= shift;
     1;
 }
 
@@ -496,7 +976,15 @@ itself.
 
 =head1 SEE ALSO
 
-L<HTML::Formatter>, L<HTML::FormatText>
+L<HTML::TreeBuilder>, L<HTML::Element>
+
+This module used to be a derived class of L<HTML::FormatText> (and hence of 
+L<HTML::Formatter>). This is no longer so. The reason is that I had to 
+override many of the methods, including some of the main ones, so I didn't 
+gain much from this inheritance. It also appears that the HTML-Format package 
+is a rarely satisfied dependency. I therefore imitated (some times 
+mouse-copied) some of the methods of those modules, especially those of 
+L<HTML::Formatter>, and made the rquired changes.
 
 The documentation of the plugin is available in the file F<browser.pod> in 
 the plugins distribution.

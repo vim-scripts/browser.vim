@@ -1,3 +1,43 @@
+* Version 0.4
+
+Main Improvements:
+	- Improved and added searching commands: Added a special bookmarks 
+	  file, _search, and commands :Search, :SearchUsing and :Keyword using 
+	  it.
+	- Encoding displayed correctly, without need to patch the (system 
+	  wide) HTML::TreeBuilder.
+	- Removed dependence of the HTML-Format bundle (now depends only on 
+	  HTML-Tree).
+	- The browser pages are not modifiable by default. This is safer, and 
+	  looks much better with the conceal patch.
+	- All input types are now supported (added file, textarea, and option 
+	  with "multiple" attribute).
+	- Added the possibility to save inline images.
+
+Main code changes:
+	- HTML::FormatText::Vim no longer depends on HTML::FormatText and on 
+	  HTML::Formatter. The only dependancy is HTML::TreeBuilder (which is 
+	  also a pre-requisit for HTML::Formatter), which appears to be much 
+	  more widely available. The full explanation is in the 
+	  HTML::FormatText::Vim pod.
+	- Using a tiny derived class of HTML::TreeBuilder, 
+	  HTML::TreeBuilder::Encode, to solve the encoding problems. This 
+	  class is defined in HTML::FormatText::Vim.
+	- VIM::Browser changes: moved much of the handling of fetching a new 
+	  page from the page class to the main package (VIM::Browser). The 
+	  %FORMAT hash now contains only formatting routines.
+
+Other changes:
+	- Added support for some extra tags: nobr, wbr, underline, dfn.
+	- vimbrowse.pl should now finally work on windows.
+	- :Reload now works correctly and prompts in case the page is a result 
+	  of posting a form.
+	- removed the few function descriptions that were available in the 
+	  documentation.
+	- The 'c' flag in the guioptions is taken into account, whenever 
+	  possible.
+	- Lots of bug fixes
+
 * Version 0.3.1
 
 Bug fix:

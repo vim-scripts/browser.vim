@@ -1,8 +1,8 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky
-" Last Update: September 17, 2004
+" Last Update: September 26, 2004
 " Description: syntax for a browser buffer. part of the browser plugin
-" Version: 0.3
+" Version: 0.4
 "
 
 if version < 600
@@ -42,6 +42,7 @@ syntax match browserHeaderUL /^\s*++++*\s*$/ display
 syntax match browserHeaderUL /^\s*""""*\s*$/ display
 syntax match browserHeaderUL /^\s*\.\.\.\.*\s*$/ display
 syntax region browserCite start=/`/ end=/'/ display contains=TOP
+syntax match browserImage /{[^}]\+}/ display
 
 " The head
 syntax region browserHead matchgroup=browserHeadTitle 
@@ -55,6 +56,9 @@ syntax region browserTextField matchgroup=browserTFstart
 syntax region browserOption matchgroup=browserInputBoundary 
       \start=+\[+ end=+\]+ oneline display keepend
 syntax match browserRadioSelected /(\*)/hs=s+1,he=e-1 display
+syntax region browserTextArea matchgroup=browserTABorder 
+      \start=/^ *--- Click to edit the text area ----* {{{$/ 
+      \end=/^ *}}} --*$/ keepend
 
 syntax sync fromstart
 
@@ -104,14 +108,18 @@ if version >= 508 || !exists("did_c_syn_inits")
   HiLink browserHeadField Constant
   HiLink browserTextField DiffAdd
   HiLink browserTFstart Folded
+  HiLink browserTAborder Folded
+  HiLink browserTextArea Repeat
   HiLink browserOption Label
   HiLink browserInputBoundary Delimiter
   HiLink browserRadioSelected Label
+  HiLink browserImage Special
 
   runtime syntax/browser_highlight.vim
 
   call BrowserDefSyntax('bold')
   call BrowserDefSyntax('italic')
+  call BrowserDefSyntax('underline')
   call BrowserDefSyntax('teletype')
   call BrowserDefSyntax('strong')
   call BrowserDefSyntax('em')
@@ -119,6 +127,7 @@ if version >= 508 || !exists("did_c_syn_inits")
   call BrowserDefSyntax('kbd')
   call BrowserDefSyntax('samp')
   call BrowserDefSyntax('var')
+  call BrowserDefSyntax('definition')
 
   delfunction BrowserDefSyntax
   

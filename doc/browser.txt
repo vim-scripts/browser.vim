@@ -1,6 +1,6 @@
 *browser.txt*                     a www browser plugin for vim
 
-                      Version 0.3. For vim version 6.3
+                      Version 0.4. For vim version 6.3
 
           VIM REFERENCE MANUAL  by Moshe Kaminsky <kaminsky@math.huji.ac.il>
 
@@ -13,9 +13,8 @@
  5. Forms                   |browser-forms|
  6. Miscellaneous commands  |browser-miscellaneous|
  7. Mappings                |browser-mappings|
- 8. Functions               |browser-functions|
- 9. Extra Features          |browser-extra|
-10. Settings                |browser-settings|
+ 8. Extra Features          |browser-extra|
+ 9. Settings                |browser-settings|
 
 
 This plugin provides basic web browsing and html viewing capabilities. It uses
@@ -128,9 +127,16 @@ See |browser-mappings| for details.
                                  window, even if an existing browser window
                                  exists. If "!" is given, split vertically.
 
-<C-R>                                   *browser-<C-R>* *:Reload*
-:Reload                          Reload the current page. If fetching the page
-                                 failed, leaves the old content.
+<C-R>                                   *browser-<C-R>*
+:BrowserReload[!]                       *:BrowserReload* *:Reload*
+:Reload[!]                       Reload the current page. If fetching the page
+                                 failed, leaves the old content.  If the page
+                                 is the result of posting form data (see
+                                 |browser-forms|), the browser will prompt the
+                                 user whether to re-submit it. Pressing any
+                                 key other than "n" will resubmit the post. To
+                                 avoid the question (giving a positive
+                                 answer), add "!".
 
 CTRL-]                                  *browser-CTRL-]*
 g<LeftMouse>                            *browser-g<LeftMouse>*
@@ -155,6 +161,9 @@ g<LeftMouse>                            *browser-g<LeftMouse>*
                                  is not given, the user is prompted to give
                                  one. This will also happen if you |:Follow| a
                                  link whose content type is not supported.
+                                 The prompt may be either graphical or
+                                 command-line, depending on the "c" flag in
+                                 'guioptions'.
 
                                  Note that this will not work if an external
                                  handler is defined for the scheme of the link
@@ -171,6 +180,23 @@ plain text with some minor markup. See|browser-html| for details about that.
 
 If the content type is not supported, the contents will be saved to a file
 instead, as if |:SaveLink| was used (with no [file]).
+
+                                                *browser-images*
+IMAGES ~
+
+The vim browser can not display inline images, but it supports saving them to
+a file:
+
+:BrowserImageSave [file]                *:BrowserImageSave* *:ImageSave*
+:ImageSave [file]                Save the image under the cursor to the given
+                                 [file]. If [file] is not given, the user is
+                                 prompted for a file name (use the "c" flag of
+                                 'guioptions' to switch between graphical and
+                                 command-line dialogs).
+
+
+An image appears as text between "{" and "}". The text is either what the web
+page supplies (as the alt attribute) or the word "IMAGE".
 
 =============================================================================
 3. History                                      *browser-history*
@@ -289,15 +315,10 @@ This includes, eg, various search services, such as google or
 "http://vim.sf.net/search.php".
 
 A form usually consists of several "inputs". An input is one individual data
-item in a form. The plugin currently supports all input kinds except for
-"file", "textarea" and "option"s which allow selection of multiple items.
-
-There are several ways to change the value of an input: first, changing the
-value by simply editing the buffer will work for every input except for
-"password". This is not recommended, though (except for "text" inputs), since
-it may lead to errors. The |:Follow| command and its variants can be used to
-modify the inputs, as explained below. In addition, there is a form specific
-command:
+item in a form. The plugin currently supports all input types. Unless
+|g:browser_page_modifiable| is set to 1 (it is 0 by default), the 'modifiable'
+option is off for browser pages, so to change the value of a an input, you
+need to use the |:Follow| command, or the following:
 
 <CR>                                            *browser-<CR>*
 :Click                                          *:Click* *:BrowserClick*
@@ -305,7 +326,7 @@ command:
                  below for the specific details for each input type.
 
 
-The following input types are supported:
+These commands have different effect for each input type, as follows:
 
 text inputs                                     *browser-text-inputs*
 
@@ -318,6 +339,10 @@ line. Clicking such an input will just cause vim to enter insert mode.  Note
 that the whole input must remain on one line.  Pressing <Tab> or <S-Tab> will
 exit insert mode and put the cursor on the next or previous link or input,
 just like |:NextLink|.
+
+If you use <Esc> or <CR> to exit insert mode, the page will retain the
+'modifiable' state it had before clicking the input, but any other method of
+going out of insert mode will not have this effect.
 
 submit inputs                                   *browser-submit-inputs*
 
@@ -351,15 +376,23 @@ way to modify the values of "radio" and "option" inputs:
 
 option inputs                                   *browser-option-inputs*
 
-An option input also allows to choose one value out of several, but only the
+There are, in fact, two kinds of option inputs, single valued and multi
+valued.
+
+Similarly to radio buttons (see |browser-radio-inputs|), a single valued
+option input also allows to choose one value out of several, but only the
 currently selected option is displayed. This is usually implemented as a
-dropdown menu. The selected option will appear between square brackets. When
+dropdown menu.  The selected option will appear between square brackets.  When
 clicked, the user will be presented with a menu of all possible choices. In
 addition, it is possible to cycle through the values (see |:NextChoice|), as
 with radio buttons.
 
 Hint: The "v" and "c" flags of 'guioptions' control the behaviour of the menu
 when the gui is running.
+
+A multi valued option input allows to have a subset of the values chosen,
+instead of one. It is emulated using checkbox buttons (see
+|browser-checkbox-inputs|), one for each option.
 
 checkbox inputs                                 *browser-checkbox-inputs*
 
@@ -373,6 +406,39 @@ They will appear as "[######]" when a value is set, and as "[______]"
 otherwise. Clicking it will prompt the user for the value, using
 |inputsecret()|. Unlike the other inputs, this one can not be editted
 directly, and clicking it is the only way to set its value.
+
+file inputs                                     *browser-file-inputs*
+
+A file input is used for attaching a file. Clicking it will cause a browse
+dialog to open, if possible, and the file to attach should be selected. If the
+vim version does not have the |+browse| feature, a regular input prompt will
+be used (either graphical or command line, depending on the "c" flag of
+'guioptions').
+
+textareas                                       *browser-textareas*
+
+A textarea is an area where a user can enter any amount of plain text. A
+textarea appears folded, with two lines composed mainly of "-" characters
+showing its start and end lines. Clicking the top line will open a preview
+window containing the current text in the textarea. The text can be modified
+in this window. Upon leaving the preview window (either by closing it, or by
+moving to another window), the text in the browser page will be updated.
+
+In case there are more text lines than the numbers of lines allocated to it on
+the browser page, the following commands can be used to scroll the text:
+
+[N]<C-Down>                     *browser-<C-Down>*
+:[N]BrowserTextScrollUp         *:BrowserTextScrollUp* *:ScrollUp*
+:[N]ScrollUp                     Scroll the text in the text area up N lines.
+                                 N defaults to 1. The command only works while
+                                 the cursor is on the text area. Note that
+                                 scrolling the text up moves the cursor down,
+                                 so the mapping makes sense.
+
+[N]<C-Up>                       *browser-<C-Up>*
+:[N]BrowserTextScrollDown       *:BrowserTextScrollDown* *:ScrollDown*
+:[N]ScrollDown                   Same as |:ScrollUp|, but in the other
+                                 direction.
 
 =============================================================================
 6. Miscellaneous commands                       *browser-miscellaneous*
@@ -401,9 +467,9 @@ directly, and clicking it is the only way to set its value.
 =============================================================================
 7. Mappings                                     *browser-mappings*
 
-The key mappings are only available if the "ftplugin/browser/mappings.vim"
-file from the "extra" directory is installed. When this file is installed, the
-following key mappings are available:
+Unless mentioned otherwise, the key mappings are only available if the
+"ftplugin/browser/mappings.vim" file from the "extra" directory is installed.
+The following key mappings are available:
  *  <C-]>, g<LeftMouse>, <C-LeftMouse>: follow link or click form input under
     the cursor (|:BrowserFollow|)
  *  <C-T>, g<RightMouse>, <C-RightMouse>: go back in history (|:BrowserBack|)
@@ -412,7 +478,15 @@ following key mappings are available:
     (|:BrowserNextLink|)
  *  <C-N>, <C-P>: Rotate input value, for radio buttons and options
     (|:BrowserNextChoice|)
- *  <CR>: Click form input, change value or submit (|:BrowserClick|)
+ *  <CR>: Click form input, change value or submit (|:BrowserClick|). In
+    insert mode, <CR> is mapped to <Esc>, but this might change in a future
+    version.
+ *  <C-S>: Search the web for the current or selected words, using the current
+    default search engine.  Only available if "plugin/browser_extra.vim" is
+    installed.  (|:Search|).
+ *  <C-K>: Lookup the word under the cursor in the current default keyword
+    lookup facility. Only available if "plugin/browser_extra.vim" is
+    installed.  (|:Keyword|).
                                                 *browser-<Space>*
  *  <Space>: Scroll one page forward
                                                 *browser-b*
@@ -422,33 +496,7 @@ following key mappings are available:
 
 
 =============================================================================
-8. Functions                                    *browser-functions*
-
-The functions mainly correspond to the command. I will only detail here some
-function that don't.
-
-                                                *BrowserShowLinkTarget()*
-BrowserShowLinkTarget()          Show the uri of the link currently under the
-                                 cursor. This is called when there was no
-                                 keypress for 'updatetime' ms, via the
-                                 |CursorHold| event.
-
-                                                *BrowserCompleteBkmkFile()*
-BrowserCompleteBkmkFile()        Lists all bookmark files. Used for completion
-                                 of bookmark file names in commands.
-
-                                                *BrowserCompleteBrowse()*
-BrowserCompleteBrowse()          Returns completion lists, for complete a uri.
-                                 This will list bookmark files, bookmarks or
-                                 files, depending on the number of ":" in the
-                                 initial segment.  See
-                                 |:command-completion-custom| for details
-                                 about the arguments and return type of this
-                                 and the previous function.
-
-
-=============================================================================
-9. Extra Features                               *browser-extra*
+8. Extra Features                               *browser-extra*
 
 Some features are available only if the files in the "extra" directory of the
 distribution are installed. This is so to avoid possible incompatibility with
@@ -478,11 +526,11 @@ meaning. Can be overriden by later settings, or by setting
 
 "plugin/browser_extra.vim"                      *browser-browser_extra.vim*
 
-Provides some extra convinience commands. Currently contains:
+Provides some extra convinience commands. Currently contains the commands and
+mappings for searching the web (see |browser-searching|), as well as the
+following commands:
 
-                                                                *:Google*
-:Google {words}                  Search the web for the given {words}, using
-                                 google.
+                                                *browser-vim-site*
 
                                                                 *:VimSearch*
 :VimSearch {type} {words}        Search the vim site for an item of the given
@@ -500,10 +548,65 @@ Provides some extra convinience commands. Currently contains:
 :VimTip {id}                     Open the tip with the given {id}
 
 
+                                                *browser-searching*
+SEARCHING THE WEB ~
+
+The special bookmarks file "_search" contains addresses of both general
+purpose and specific search engines. Several commands make use of this file:
+
+                                                *:SearchUsing*
+:SearchUsing {facility} [words]  Search the web for [words], using the given
+                                 {facility}. {facility} is one of the
+                                 bookmarks in that file. If no word is given,
+                                 use the word under the cursor. For example,
+>
+        :SearchUsing google foo bar
+<
+                                 will search these words with google.
+
+[{visual}]<C-S>                                 *browser-<C-S>* *:Search*
+:Search [words]                  Search using the facility given by the
+                                 |g:browser_search_engine| variable. If no
+                                 words are given, use the current word. This
+                                 variable can be set in a filetype plugin, to
+                                 reflect different search sites for different
+                                 purposes.
+
+                                 For example, you might have
+>
+        let g:browser_search_engine = 'perldoc'
+<
+                                 in your "perl.vim" ftplugin,
+>
+        let g:browser_search_engine = 'vimdoc'
+<
+                                 in the "vim.vim" plugin, etc.
+
+                                 (If you have useful sites to put here, please
+                                 send them to me!)
+
+                                 <C-S> searches the word under the cursor, or
+                                 the words selected in the visual region, if
+                                 used for {visual}.
+
+<C-K>                                           *browser-<C-K>* *:Keyword*
+:Keyword [word]                  Same as |:Search|, but at only one word is
+                                 allowed, and uses |g:browser_keyword_search|
+                                 instead of |g:browser_search_engine|.
+
+:Google [words]                                 *:Google*
+:Dictionary [word]                              *:Dictionary* *:Thesaurus*
+:Thesaurus [words]               Shortcuts for |:SearchUsing|, with {facility}
+                                 set to google, dictionary or thesaurus,
+                                 respectively.
+
+
+There is also a command for searching the vim site, |:VimSearch|
+
 Loading of this plugin can be avoided by setting |g:browser_extra_version|.
 
 =============================================================================
-10. Settings                                    *browser-settings*
+9. Settings                                     *browser-settings*
 
 All settings are controlled by global variables whose name start with
 "browser_". Some examples and default values are given in the beginning of the
@@ -537,6 +640,40 @@ g:browser_default_addrbook       Default: "default"
 
                                  The default "current" bookmarks file. See
                                  |browser-bookmarks| for details.
+
+                                        *g:browser_page_modifiable*
+g:browser_page_modifiable        Default: 0
+
+                                 If set to a false value (such as 0), the
+                                 browser buffers are not modifiable.  This
+                                 makes it safer, since accidentally changing
+                                 lines will make links unusable. It also looks
+                                 much better with the "conceal" patch. The
+                                 only drawback is that a restricted set of
+                                 operations is available for editing form
+                                 inputs (see |browser-forms| for details). But
+                                 since the only input type which requires
+                                 substantial editing, the textarea, is
+                                 modified in another buffer, it's not a severe
+                                 restriction.
+
+                                 Setting it to 1 will revert to the situation
+                                 in the versions before 0.4, that the page is
+                                 modifiable.
+
+                                        *g:browser_search_engine*
+g:browser_search_engine          Default: "google"
+
+                                 The search facility to use with the |:Search|
+                                 command.  See |browser-searching| for
+                                 details.
+
+                                        *g:browser_keyword_search*
+g:browser_keyword_search         Default: "dictionary"
+
+                                 The search facility to use with the
+                                 |:Keyword| command. See |browser-searching|
+                                 for details.
 
                                         *g:browser_from_header*
 g:browser_from_header            Default: "$EMAIL"
@@ -635,6 +772,7 @@ attribute, in case |g:browser_{attr}_start| is undefined.
         -----------------------------------------
         bold            b
         italic          i
+        underline       u
         teletype        tt
         strong          strong          bold
         em              em              italic
@@ -642,6 +780,7 @@ attribute, in case |g:browser_{attr}_start| is undefined.
         kbd             kbd             teletype
         samp            samp            teletype
         var             var             teletype
+        definition      dfn             underline
 <
                                                 *browser-schemes*
 SCHEMES ~

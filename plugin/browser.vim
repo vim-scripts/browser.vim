@@ -1,15 +1,15 @@
 " File Name: browser.vim
 " Maintainer: Moshe Kaminsky <kaminsky@math.huji.ac.il>
-" Last Update: September 17, 2004
+" Last Update: September 26, 2004
 " Description: web browser plugin for vim
-" Version: 0.3
+" Version: 0.4
 "
 
 " don't run twice or when 'compatible' is set
 if exists('g:browser_plugin_version') || &compatible
   finish
 endif
-let g:browser_plugin_version = 0.3
+let g:browser_plugin_version = 0.4
 
 " add <dir>/perl to the perl include path, for each dir in runtimepath. This 
 " way we can install the modules in a vim directory, instead of the global 
@@ -43,6 +43,8 @@ let g:browser_bold_end='*_'
 let g:browser_italic_start='_/'
 let g:browser_italic_end='/_'
 ";x let g:browser_italic_highlight='Function'
+let g:browser_underline_start='_-'
+let g:browser_underline_end='-_'
 
 " directory where all the data is kept. Default is the 'browser' subdir of the
 " first writeable component of 'runtimepath'
@@ -65,6 +67,8 @@ let g:browser_assumed_encoding = 'utf-8'
 
 let g:browser_from_header = $EMAIL
 
+let g:browser_page_modifiable = 0
+
 """""""""""""" commands """""""""""""""""""
 " long commands. The short versions from version 0.1 are in browser_short.vim
 
@@ -76,7 +80,7 @@ command! -bar -bang -nargs=+ -complete=custom,BrowserCompleteBrowse
 command! -bar BrowserFollow call BrowserFollow()
 command! -bar -nargs=? -complete=dir BrowserSaveLink 
       \call BrowserSaveLink(<f-args>)
-command! -bar BrowserReload call BrowserReload()
+command! -bar -bang BrowserReload call BrowserReload(<q-bang>)
 
 " history
 command! -bar -range=1 BrowserBack call BrowserBack(<count>)
@@ -98,6 +102,8 @@ command! -bar -nargs=? -complete=custom,BrowserCompleteBkmkFile
 command! -bar -range=1 BrowserNextChoice call BrowserNextChoice(<count>)
 command! -bar -range=1 BrowserPrevChoice call BrowserPrevChoice(<count>)
 command! -bar BrowserClick call BrowserClick()
+command! -bar -range=1 BrowserTextScrollUp call BrowserTextScroll(<count>)
+command! -bar -range=1 BrowserTextScrollDown call BrowserTextScroll(-<count>)
 
 " other
 command! -bar BrowserShowHeader call BrowserShowHeader()
@@ -105,6 +111,8 @@ command! -bar BrowserHideHeader call BrowserHideHeader()
 command! -bar -bang BrowserViewSource call BrowserViewSource(<q-bang>)
 command! -bar -range=1 BrowserNextLink call BrowserNextLink(<count>)
 command! -bar -range=1 BrowserPrevLink call BrowserPrevLink(<count>)
+command! -bar -nargs=? -complete=dir BrowserImageSave 
+      \call BrowserImage('save', <f-args>)
 
 """"""""""""" autocommands """"""""""""""""""""
 augroup Browser
@@ -112,6 +120,8 @@ augroup Browser
   autocmd WinEnter VimBrowser:-*/*- call BrowserUpdateInstance()
   autocmd BufWipeout VimBrowser:-*/*- call BrowserCleanBuf(expand("<afile>"))
   autocmd CursorHold VimBrowser:-*/*- call BrowserShowLinkTarget()
+  autocmd BufLeave Browser-TextArea-* call BrowserSetTextArea()
+  autocmd WinEnter Browser-TextArea-* resize 10
 augroup END
 
 """""""""""""" functions """""""""""""""""""""""
@@ -128,6 +138,10 @@ endfunction
 
 function! BrowserShowLinkTarget()
   perl VIM::Browser::showLinkTarget
+endfunction
+
+function BrowserSetTextArea()
+  perl VIM::Browser::setTextArea
 endfunction
 
 function! BrowserBrowse(File, ...)
@@ -148,12 +162,15 @@ function! BrowserFollow()
   perl VIM::Browser::follow
 endfunction
 
-function! BrowserReload()
-  perl VIM::Browser::reload
+function! BrowserReload(force)
+  perl <<EOF
+  my $force = VIM::Eval('a:force');
+  VIM::Browser::reload($force);
+EOF
 endfunction
 
 function! BrowserBack(...)
-  perl << EOF
+  perl <<EOF
   my $Offset = VIM::Eval('a:0 ? a:1 : 1');
   VIM::Browser::goHist(-$Offset);
 EOF
@@ -217,6 +234,13 @@ function! BrowserPrevChoice(count)
 EOF
 endfunction
 
+function! BrowserTextScroll(count)
+  perl <<EOF
+  my $count = VIM::Eval('a:count');
+  VIM::Browser::scrollText($count);
+EOF
+endfunction
+
 function! BrowserBookmark(name, del)
   perl << EOF
   my $name = VIM::Eval('a:name');
@@ -248,6 +272,15 @@ function! BrowserSaveLink(...)
   perl << EOF
   my $file = VIM::Eval('file');
   VIM::Browser::saveLink($file);
+EOF
+endfunction
+
+function! BrowserImage(Action, ...)
+  let arg = a:0 ? a:1 : ''
+  perl << EOF
+  my $action = VIM::Eval('a:Action');
+  my $arg = VIM::Eval('arg');
+  VIM::Browser::handleImage($action, $arg);
 EOF
 endfunction
 
